@@ -1334,7 +1334,7 @@ else
         _AMBIGUOUS_RESUME=true
         if [ -t 0 ]; then
             printf "$(_t "Session '%s' found. Resume it? [y/N] (N = use as prompt) " "세션 '%s'을 찾았습니다. 재개할까요? [y/N] (N = 프롬프트로 사용) ")" "$arg2"
-            local _confirm
+            _confirm=""
             read -r _confirm
             case "$_confirm" in
                 y|Y|yes|YES)
