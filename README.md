@@ -4,7 +4,7 @@ Schedule [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI sessi
 
 - One-time or recurring schedules (daily, weekday, weekend, specific days)
 - Opens a Terminal window (or iTerm2) and runs Claude Code at the scheduled time
-- Wake-from-sleep support via `pmset`
+- Wake-from-sleep support via `pmset` with automatic sudoers setup
 - Session resumption by session ID
 - Bilingual output (English / Korean, auto-detected)
 
@@ -42,6 +42,18 @@ Installs to `/usr/local/bin/claude-at` with a `ca` symlink.
 alias ca="/path/to/claude-at.sh"
 ```
 
+### Post-install: Wake-from-sleep setup
+
+To ensure scheduled jobs run even when the Mac is asleep, configure passwordless `pmset` access:
+
+```bash
+ca --setup
+```
+
+This creates `/etc/sudoers.d/claude-at` granting your user passwordless access to `/usr/bin/pmset` only. Without this, jobs that fire while the Mac is asleep will be delayed until the next wake.
+
+> **Note**: Wake-from-sleep requires the **lid to be open** or an **external monitor connected**. With the lid closed and no display attached, the hardware wakes but the terminal window cannot open, so the job will fail.
+
 ## Quick Start
 
 ```bash
@@ -56,6 +68,9 @@ ca +1d "Run weekly cleanup"
 
 # Recurring: every weekday at 9am
 ca -r weekday 09:00 "Review overnight changes"
+
+# Recurring: daily at multiple times
+ca -r daily 07:00,12:00,17:00,22:00 "Check status"
 
 # List all jobs
 ca -l
@@ -83,6 +98,7 @@ ca --modify <job-id>                    # edit prompt interactively
 ca --modify <job-id> 'new-prompt'       # change prompt directly
 ca --time <job-id> <time>               # reschedule
 ca --upgrade                            # upgrade jobs from older versions
+ca --setup                              # configure pmset wake permissions
 ```
 
 ### Time Formats
@@ -114,6 +130,7 @@ ca --upgrade                            # upgrade jobs from older versions
 | `CLAUDE_AT_FLAGS` | *(empty)* | Extra flags passed to `claude` CLI |
 | `CLAUDE_AT_STORE` | `~/.claude-at` | Job storage directory |
 | `CLAUDE_AT_LANG` | *(auto-detect)* | Display language (`en` or `ko`) |
+| `CLAUDE_AT_MIN_INTERVAL` | `120` | Minimum interval (seconds) between repeat job runs (dedup guard) |
 
 ### Running with `--dangerously-skip-permissions`
 
@@ -128,28 +145,51 @@ ca +30m "task that needs full permissions"
 
 ### Wake from Sleep
 
-The tool uses `pmset schedule wake` to wake the Mac before scheduled jobs. This requires `sudo` access. If passwordless sudo is not configured, you will be prompted for your password. Wake scheduling is optional — jobs still run if the machine is already awake.
+The tool uses `pmset schedule wake` to wake the Mac before scheduled jobs. Run `ca --setup` to configure passwordless `pmset` access — this is required for recurring jobs to reliably wake the machine.
+
+**How it works:**
+
+1. When a job is created, `claude-at` schedules a `pmset wake` 2 minutes before the target time
+2. For recurring jobs, each run automatically schedules the wake for the next execution
+3. `ca --setup` creates `/etc/sudoers.d/claude-at` so that background wake scheduling works without a password
+
+**If `ca --setup` is not run:**
+
+- Job creation will prompt for your password (interactive fallback)
+- Background wake scheduling (between recurring runs) will silently fail
+- Jobs will still run if the machine happens to be awake, but will be delayed if asleep
+
+**Lid and display requirements:**
+
+| State | Wake | Job runs |
+|-------|------|----------|
+| Lid open, asleep | Yes | Yes |
+| Lid closed + external monitor + power | Yes | Yes |
+| Lid closed, no external monitor | Yes | **No** — terminal cannot open |
 
 ## Permissions
 
 On first use, macOS may prompt for:
 
-- **Automation permission**: Allows the script to open Terminal windows via AppleScript
-- **sudo** (optional): For `pmset schedule wake` to wake from sleep
+- **Automation permission**: Allows the script to open Terminal windows via AppleScript. Go to System Settings > Privacy & Security > Automation
+- **sudo** (one-time): `ca --setup` requires admin password to create the sudoers rule
 
 ## How It Works
 
 1. Creates a **launchd** user agent (plist in `~/Library/LaunchAgents/`) with `StartCalendarInterval`
 2. At the scheduled time, launchd runs a **runner script** that:
+   - Schedules the next `pmset wake` (recurring jobs)
+   - Guards against duplicate runs within the minimum interval
+   - Wakes the display with `caffeinate -u`
    - Displays a macOS notification
-   - Opens Terminal.app (or iTerm2) via AppleScript
-   - Runs an **exec script** inside the terminal that starts Claude Code with `caffeinate`
+   - Opens Terminal.app (or iTerm2) via AppleScript (with 3 retries)
+   - Runs an **exec script** inside the terminal that starts Claude Code with `caffeinate -i`
 3. For one-time jobs, the runner includes a **date guard** and the exec script cleans up all files after execution
-4. For recurring jobs, the runner schedules the next `pmset wake`
+4. For recurring jobs, a `_next_wake.sh` helper calculates and registers the next wake time
 
 ## Upgrading
 
-After updating `claude-at`, run `ca --upgrade` to regenerate runner scripts for existing jobs. This applies security improvements and removes any hardcoded flags from older versions.
+After updating `claude-at`, run `ca --upgrade` to regenerate runner scripts for existing jobs. This applies security improvements and updates the wake helper script.
 
 ## Uninstall
 
@@ -165,6 +205,12 @@ ca -c <job-id>
 sudo make uninstall
 # or (user-local)
 make uninstall-user
+
+# Optionally remove the sudoers rule
+sudo rm -f /etc/sudoers.d/claude-at
+
+# Optionally remove job data
+rm -rf ~/.claude-at
 ```
 
 ## Troubleshooting
@@ -173,13 +219,13 @@ make uninstall-user
 macOS requires Automation permission. Go to System Settings > Privacy & Security > Automation and allow your terminal to control Terminal.app (or iTerm2).
 
 **Job didn't run (machine was asleep)**
-Wake-from-sleep requires `sudo` for `pmset schedule wake`. If passwordless sudo is not configured, you'll be prompted during job creation. Without it, jobs only run when the machine is already awake.
+Run `ca --setup` to configure passwordless `pmset` access. Check `~/.claude-at/<job-id>.runlog` for `warn: pmset wake failed` entries. The lid must be open or an external monitor connected.
+
+**Job ran late**
+Check if `pmset wake` was scheduled: `pmset -g sched`. If no `claude-at` wake entry exists, run `ca --setup` and then `ca --upgrade` to regenerate scripts.
 
 **"bootstrap failed" when creating a job**
 The launchd agent may already be loaded. Run `ca -c <job-id>` to clean up, then recreate.
-
-**Repeat jobs stop waking the machine after `ca -c all`**
-This is fixed in v0.1.0+. Run `ca --upgrade` to regenerate runner scripts.
 
 **Jobs from older versions can't be modified**
 Run `ca --upgrade` to add missing metadata fields and regenerate scripts.

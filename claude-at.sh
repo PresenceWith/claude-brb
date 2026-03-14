@@ -3,7 +3,7 @@
 set -euo pipefail
 umask 077
 
-VERSION="0.1.3"
+VERSION="0.1.4"
 
 # --- i18n: detect locale once, cache result ---
 _lang_code="${CLAUDE_AT_LANG:-${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}}"
@@ -83,6 +83,7 @@ Options:
   -m, --modify    프롬프트 수정
   -t, --time      실행 시각 변경
   -u, --upgrade   기존 작업 업그레이드
+  -S, --setup     pmset 잠자기 해제 권한 설정
   -V, --version   버전 표시
   -h, --help      도움말
 
@@ -91,6 +92,11 @@ Environment:
   CLAUDE_AT_FLAGS      claude CLI 추가 플래그           [기본: 없음]
   CLAUDE_AT_STORE      작업 저장 디렉터리               [기본: ~/.claude-at]
   CLAUDE_AT_LANG       표시 언어 (en, ko)               [기본: 자동 감지]
+
+Note:
+  잠자기 해제(pmset wake)는 덮개가 열려있거나 외부 모니터가 연결된
+  상태에서만 정상 작동합니다. 덮개가 닫힌 채 외부 모니터 없이는
+  하드웨어는 깨어나지만 터미널 창을 열 수 없어 실행이 실패합니다.
 
 Examples:
   ca 03:00 "Write unit tests"                           # 현재 폴더에서 새 세션
@@ -147,6 +153,7 @@ Options:
   -m, --modify    modify prompt
   -t, --time      change schedule time
   -u, --upgrade   upgrade existing jobs
+  -S, --setup     configure pmset wake permissions
   -V, --version   show version
   -h, --help      show this help
 
@@ -155,6 +162,11 @@ Environment:
   CLAUDE_AT_FLAGS      extra flags for claude CLI        [default: none]
   CLAUDE_AT_STORE      job storage directory             [default: ~/.claude-at]
   CLAUDE_AT_LANG       display language (en, ko)         [default: auto-detect]
+
+Note:
+  Wake-from-sleep (pmset wake) requires the lid to be open or an external
+  monitor connected. With the lid closed and no display, the hardware wakes
+  but the terminal window cannot open, so the job will fail.
 
 Examples:
   ca 03:00 "Write unit tests"                           # new session at 3am
@@ -473,6 +485,8 @@ if [ -n "$best" ]; then
     wf=$(date -r "$wt" '+%m/%d/%Y %H:%M:%S')
     if sudo -n pmset schedule wake "$wf" 2>/dev/null; then
         echo "$wf" > "$WAKE_FILE"
+    else
+        echo "$(date '+%Y-%m-%d %H:%M:%S') warn: pmset wake failed (run 'ca --setup')" >> "$STORE/${JOB_ID}.runlog" 2>/dev/null
     fi
 fi
 WAKESCRIPT
@@ -521,20 +535,92 @@ _parse_time_to_epoch() {
     fi
 }
 
-# Try to schedule pmset wake (sudo -n first, then interactive fallback)
+# Check if passwordless pmset access is available
+_can_pmset_sudo() {
+    sudo -n /usr/bin/pmset -g sched >/dev/null 2>&1
+}
+
+# Set up /etc/sudoers.d/claude-at for passwordless pmset (interactive)
+_setup_pmset_sudo() {
+    _can_pmset_sudo && return 0
+    [ -t 0 ] || return 1
+
+    local sudoers_file="/etc/sudoers.d/claude-at"
+    local user
+    user=$(whoami)
+
+    _err ""
+    _err "$(_t \
+        "Wake scheduling requires passwordless pmset access." \
+        "잠자기 해제 예약을 위해 pmset의 비밀번호 없는 실행 권한이 필요합니다.")"
+    _err "$(_t \
+        "Without this, scheduled jobs may be delayed when Mac is asleep." \
+        "이 설정 없이는 Mac이 잠자기 상태일 때 예약이 지연될 수 있습니다.")"
+    _err ""
+    _err "$(_t "Will create:" "생성할 파일:") ${sudoers_file}"
+    _err "  ${user} ALL=(root) NOPASSWD: /usr/bin/pmset"
+    _err ""
+    _err "$(_t \
+        "Note: Lid must be open or an external monitor connected." \
+        "참고: 덮개가 열려있거나 외부 모니터가 연결되어 있어야 합니다.")"
+    _err "$(_t \
+        "With lid closed and no display, the job cannot open a terminal." \
+        "덮개가 닫힌 채 모니터가 없으면 터미널 창을 열 수 없습니다.")"
+    _err ""
+
+    printf "$(_t "Set up now? [Y/n] " "지금 설정할까요? [Y/n] ")"
+    local confirm
+    read -r confirm
+    case "$confirm" in
+        n|N|no|NO)
+            _err "$(_t "Skipped. Jobs may be delayed when Mac is asleep." \
+                "건너뜀. Mac이 잠자기 상태일 때 예약이 지연될 수 있습니다.")"
+            return 1
+            ;;
+    esac
+
+    local rule="${user} ALL=(root) NOPASSWD: /usr/bin/pmset"
+    if printf '# claude-at: allow passwordless pmset for wake scheduling\n%s\n' "$rule" \
+        | sudo tee "$sudoers_file" >/dev/null \
+        && sudo chmod 0440 "$sudoers_file" \
+        && sudo chown root:wheel "$sudoers_file"; then
+        echo "$(_t "pmset sudo configured." "pmset sudo 설정 완료.")"
+        return 0
+    else
+        _err "$(_t "Error: failed to install sudoers rule" "Error: sudoers 규칙 설치 실패")"
+        return 1
+    fi
+}
+
+# Try to schedule pmset wake (auto-setup → sudo -n → interactive fallback)
 _try_schedule_wake() {
     local wake_fmt="$1"
     local wake_file="$2"
 
+    # Fast path: passwordless sudo works
     if sudo -n pmset schedule wake "$wake_fmt" 2>/dev/null; then
         echo "$wake_fmt" > "$wake_file"
-    else
+        return 0
+    fi
+
+    # Offer to set up passwordless pmset access
+    if _setup_pmset_sudo; then
+        if sudo -n pmset schedule wake "$wake_fmt" 2>/dev/null; then
+            echo "$wake_fmt" > "$wake_file"
+            return 0
+        fi
+    fi
+
+    # Final fallback: interactive sudo (one-time password)
+    if [ -t 0 ]; then
         _err "$(_t "Admin password required for wake-from-sleep:" "잠자기 해제를 위해 관리자 비밀번호가 필요합니다:")"
         if sudo pmset schedule wake "$wake_fmt"; then
             echo "$wake_fmt" > "$wake_file"
         else
             _err "$(_t "Warning: pmset wake scheduling failed" "경고: pmset wake 예약 실패")"
         fi
+    else
+        _err "$(_t "Warning: pmset wake scheduling skipped (run 'ca --setup')" "경고: pmset wake 예약 생략 ('ca --setup' 실행 필요)")"
     fi
 }
 
@@ -1248,6 +1334,7 @@ case "${1:-}" in
     -m|--modify)  [ -z "${2:-}" ] && { _err "$(_t "Error: job-id required" "Error: Job ID가 필요합니다"): ca -m <job-id>"; exit 1; }; modify_job "$2" "${3:-}" ;;
     -t|--time)    [ -z "${2:-}" ] && { _err "$(_t "Error: job-id required" "Error: Job ID가 필요합니다"): ca -t <job-id> <time>"; exit 1; }; retime_job "$2" "${3:-}" ;;
     -u|--upgrade) upgrade_all_jobs ;;
+    -S|--setup)   _setup_pmset_sudo; exit $? ;;
     -r|--repeat)  ;;  # handled below in repeat mode
     -*)
         _err "$(_t "Error: unknown option" "Error: 알 수 없는 옵션"): $1"
