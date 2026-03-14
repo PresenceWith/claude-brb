@@ -3,7 +3,7 @@
 set -euo pipefail
 umask 077
 
-VERSION="0.1.2"
+VERSION="0.1.3"
 
 # --- i18n: detect locale once, cache result ---
 _lang_code="${CLAUDE_AT_LANG:-${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}}"
@@ -27,6 +27,10 @@ PLIST_DIR="$HOME/Library/LaunchAgents"
 LABEL_PREFIX="com.claude-at"
 CLAUDE_AT_TERMINAL="${CLAUDE_AT_TERMINAL:-Terminal}"
 CLAUDE_AT_FLAGS="${CLAUDE_AT_FLAGS:-}"
+CLAUDE_AT_MIN_INTERVAL="${CLAUDE_AT_MIN_INTERVAL:-120}"
+if ! [[ "$CLAUDE_AT_MIN_INTERVAL" =~ ^[1-9][0-9]*$ ]]; then
+    CLAUDE_AT_MIN_INTERVAL=120
+fi
 
 # --- validate terminal (prevent AppleScript injection) ---
 case "$CLAUDE_AT_TERMINAL" in
@@ -411,7 +415,7 @@ _schedule_next_repeat_wake() {
 
     if [ -n "$best" ]; then
         local wake_ts wake_fmt
-        wake_ts=$((best - 60))
+        wake_ts=$((best - 120))
         wake_fmt=$(date -r "$wake_ts" '+%m/%d/%Y %H:%M:%S')
         _try_schedule_wake "$wake_fmt" "$wake_file"
     fi
@@ -465,7 +469,7 @@ if [ -n "$best" ]; then
         fi
         rm -f "$WAKE_FILE"
     fi
-    wt=$((best - 60))
+    wt=$((best - 120))
     wf=$(date -r "$wt" '+%m/%d/%Y %H:%M:%S')
     if sudo -n pmset schedule wake "$wf" 2>/dev/null; then
         echo "$wf" > "$WAKE_FILE"
@@ -547,12 +551,14 @@ _applescript_notify() {
     printf '%s\n' 'osascript -e "display notification \"$_NOTIF\" with title \"claude-at\""'
 }
 
-# Generate AppleScript block to open terminal with exec script
+# Generate AppleScript block to open terminal with exec script (with retry)
 _applescript_run_in_terminal() {
     local terminal="$1"
     local exec_script="$2"
 
-    printf '%s\n' "osascript << 'SCPT'"
+    printf '%s\n' '_ca_ok=false'
+    printf '%s\n' 'for _ca_i in 1 2 3; do'
+    printf '%s\n' "    if osascript << 'SCPT'"
     case "$terminal" in
         Terminal)
             printf '%s\n' 'tell application "Terminal"'
@@ -568,6 +574,16 @@ _applescript_run_in_terminal() {
             ;;
     esac
     printf '%s\n' 'SCPT'
+    printf '%s\n' '    then'
+    printf '%s\n' '        _ca_ok=true'
+    printf '%s\n' '        break'
+    printf '%s\n' '    fi'
+    printf '%s\n' '    echo "$(date '\''+%Y-%m-%d %H:%M:%S'\'') osascript attempt $_ca_i/3 failed" >&2'
+    printf '%s\n' '    sleep 3'
+    printf '%s\n' 'done'
+    printf '%s\n' 'if ! $_ca_ok; then'
+    printf '%s\n' '    echo "$(date '\''+%Y-%m-%d %H:%M:%S'\'') ERROR: osascript failed after 3 attempts" >&2'
+    printf '%s\n' 'fi'
 }
 
 # Warn if claude CLI is not found
@@ -697,6 +713,27 @@ _generate_runner() {
 
         if [ "$meta_type" = "repeat" ]; then
             printf '%s\n' "# repeat | ${META_SCHEDULE} ${META_TIMES} | ${jid} | ${info_label} | ${log_prompt:-resume}"
+            # Schedule next wake before dedup guard (must run even if skipped)
+            printf '%s\n' "bash \"${STORE}/_next_wake.sh\" \"${jid}\" \"${STORE}\" 2>/dev/null &"
+            # Dedup guard: skip if last run was within MIN_INTERVAL seconds
+            printf '%s\n' "_RUNLOG=\"${STORE}/${jid}.runlog\""
+            printf '%s\n' "_MIN_INTERVAL=${CLAUDE_AT_MIN_INTERVAL}"
+            printf '%s\n' 'if [ -f "$_RUNLOG" ]; then'
+            printf '%s\n' '    _LAST_LINE=$(tail -1 "$_RUNLOG")'
+            printf '%s\n' '    case "$_LAST_LINE" in'
+            printf '%s\n' '        *" run")'
+            printf '%s\n' '            _LAST_TS="${_LAST_LINE% run}"'
+            printf '%s\n' '            if [[ "$_LAST_TS" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}\ [0-9]{2}:[0-9]{2}:[0-9]{2}$ ]]; then'
+            printf '%s\n' '                _LAST_EPOCH=$(date -j -f "%Y-%m-%d %H:%M:%S" "$_LAST_TS" +%s 2>/dev/null) || _LAST_EPOCH=0'
+            printf '%s\n' '                _NOW_EPOCH=$(date +%s)'
+            printf '%s\n' '                if [ $((_NOW_EPOCH - _LAST_EPOCH)) -lt $_MIN_INTERVAL ]; then'
+            printf '%s\n' '                    echo "$(date '\''+%Y-%m-%d %H:%M:%S'\'') skip (dedup)" >> "$_RUNLOG"'
+            printf '%s\n' '                    exit 0'
+            printf '%s\n' '                fi'
+            printf '%s\n' '            fi'
+            printf '%s\n' '            ;;'
+            printf '%s\n' '    esac'
+            printf '%s\n' 'fi'
             printf '%s\n' "echo \"\$(date '+%Y-%m-%d %H:%M:%S') run\" >> \"${STORE}/${jid}.runlog\""
         else
             printf '%s\n' "# once | ${META_TARGET_FMT} | ${jid} | ${info_label} | ${log_prompt:-resume}"
@@ -709,8 +746,8 @@ _generate_runner() {
         fi
 
         # Wake display and prevent idle sleep (needed when waking from pmset schedule)
-        printf '%s\n' 'caffeinate -u -t 5 &'
-        printf '%s\n' 'sleep 1'
+        printf '%s\n' 'caffeinate -u -t 30 &'
+        printf '%s\n' 'sleep 3'
 
         # Notification (shared between repeat and once)
         _applescript_notify "${META_MODE:-new}" "$info_label"
@@ -724,9 +761,6 @@ _generate_runner() {
             printf '%s\n' "sleep 2"
             printf '%s\n' "rm -f \"${PLIST_DIR}/${LABEL_PREFIX}.${jid}.plist\" \"${runner}\" \"${STORE}/.wake-${jid}\" \"${STORE}/${jid}.log\" \"${STORE}/${jid}.prompt\" \"${STORE}/${jid}.meta\""
             printf '%s\n' "launchctl bootout gui/\$(id -u)/${LABEL_PREFIX}.${jid} 2>/dev/null"
-        else
-            # Schedule next wake for repeat jobs
-            printf '%s\n' "bash \"${STORE}/_next_wake.sh\" \"${jid}\" \"${STORE}\" 2>/dev/null &"
         fi
     } | _atomic_write "$runner"
 
@@ -1156,7 +1190,7 @@ retime_job() {
     fi
 
     local wake_ts wake_fmt
-    wake_ts=$((target - 60))
+    wake_ts=$((target - 120))
     wake_fmt=$(date -r "$wake_ts" '+%m/%d/%Y %H:%M:%S')
     _try_schedule_wake "$wake_fmt" "$STORE/.wake-${jid}"
 
@@ -1427,7 +1461,7 @@ if ! launchctl bootstrap "gui/$(id -u)" "${PLIST_DIR}/${label}.plist"; then
 fi
 
 # --- Schedule pmset wake ---
-wake_ts=$((target - 60))
+wake_ts=$((target - 120))
 wake_fmt=$(date -r "$wake_ts" '+%m/%d/%Y %H:%M:%S')
 _try_schedule_wake "$wake_fmt" "$STORE/.wake-${JOB_ID}"
 
