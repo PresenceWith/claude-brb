@@ -3,7 +3,7 @@
 set -euo pipefail
 umask 077
 
-VERSION="0.1.1"
+VERSION="0.1.2"
 
 # --- i18n: detect locale once, cache result ---
 _lang_code="${CLAUDE_AT_LANG:-${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}}"
@@ -195,6 +195,12 @@ validate_flags() {
     fi
 }
 
+# --- validate wake file content (strict date format) ---
+_validate_wake_time() {
+    local wt="$1"
+    [[ "$wt" =~ ^[0-9]{2}/[0-9]{2}/[0-9]{4}\ [0-9]{2}:[0-9]{2}:[0-9]{2}$ ]]
+}
+
 # --- safe meta file reader (parameter expansion based) ---
 _read_meta() {
     local meta_file="$1"
@@ -371,7 +377,9 @@ _schedule_next_repeat_wake() {
     if [ -f "$wake_file" ]; then
         local old_wake
         old_wake=$(cat "$wake_file")
-        sudo -n pmset schedule cancel wake "$old_wake" 2>/dev/null || true
+        if _validate_wake_time "$old_wake"; then
+            sudo -n pmset schedule cancel wake "$old_wake" 2>/dev/null || true
+        fi
         rm -f "$wake_file"
     fi
 
@@ -452,7 +460,9 @@ if [ -n "$best" ]; then
     # Cancel previous wake
     if [ -f "$WAKE_FILE" ]; then
         ow=$(cat "$WAKE_FILE")
-        sudo -n pmset schedule cancel wake "$ow" 2>/dev/null || true
+        if [[ "$ow" =~ ^[0-9]{2}/[0-9]{2}/[0-9]{4}\ [0-9]{2}:[0-9]{2}:[0-9]{2}$ ]]; then
+            sudo -n pmset schedule cancel wake "$ow" 2>/dev/null || true
+        fi
         rm -f "$WAKE_FILE"
     fi
     wt=$((best - 60))
@@ -468,7 +478,8 @@ WAKESCRIPT
 # Atomic file write (tmp → mv)
 _atomic_write() {
     local target="$1"
-    local tmp="${target}.tmp.$$"
+    local tmp
+    tmp=$(mktemp "${target}.XXXXXX")
     cat > "$tmp"
     mv -f "$tmp" "$target"
 }
@@ -486,7 +497,7 @@ _parse_time_to_epoch() {
     elif [[ "$time_str" =~ ^\+([0-9]+)h$ ]]; then
         echo $((now + ${BASH_REMATCH[1]} * 3600))
     elif [[ "$time_str" =~ ^\+([0-9]+)d$ ]]; then
-        echo $((now + ${BASH_REMATCH[1]} * 86400))
+        date -v+${BASH_REMATCH[1]}d +%s
     elif [[ "$time_str" =~ ^([0-9]{1,2}):([0-9]{2})$ ]]; then
         local target
         target=$(date -j -f "%Y-%m-%d %H:%M:%S" "$(date +%Y-%m-%d) ${BASH_REMATCH[1]}:${BASH_REMATCH[2]}:00" +%s 2>/dev/null) || {
@@ -616,7 +627,7 @@ _generate_exec() {
         if [ "$meta_type" = "once" ]; then
             # One-time: read prompt BEFORE setting cleanup trap
             $has_prompt && printf 'PROMPT=$(<"%s")\n' "${prompt_file}"
-            printf '%s\n' "trap 'rm -f \"${exec_script}\"' EXIT"
+            printf '%s\n' "trap 'launchctl bootout gui/\$(id -u)/${LABEL_PREFIX}.${jid} 2>/dev/null; rm -f \"${PLIST_DIR}/${LABEL_PREFIX}.${jid}.plist\" \"${STORE}/${jid}.sh\" \"${exec_script}\" \"${STORE}/.wake-${jid}\" \"${STORE}/${jid}.log\" \"${STORE}/${jid}.runlog\" \"${STORE}/${jid}.prompt\" \"${STORE}/${jid}.meta\"' EXIT"
             printf 'cd "%s"\n' "${META_DIR}"
         else
             # Repeat: no cleanup, read prompt after cd
@@ -691,8 +702,8 @@ _generate_runner() {
             printf '%s\n' "# once | ${META_TARGET_FMT} | ${jid} | ${info_label} | ${log_prompt:-resume}"
             # Date guard: clean up and exit if launchd fires on wrong date
             printf '%s\n' "if [ \"\$(date +%Y%m%d)\" != \"${META_TARGET_YMD}\" ]; then"
-            printf '%s\n' "    rm -f \"${PLIST_DIR}/${LABEL_PREFIX}.${jid}.plist\" \"${runner}\" \"${STORE}/${jid}.exec.sh\" \"${STORE}/.wake-${jid}\" \"${STORE}/${jid}.log\" \"${STORE}/${jid}.prompt\" \"${STORE}/${jid}.meta\""
             printf '%s\n' "    launchctl bootout gui/\$(id -u)/${LABEL_PREFIX}.${jid} 2>/dev/null"
+            printf '%s\n' "    rm -f \"${PLIST_DIR}/${LABEL_PREFIX}.${jid}.plist\" \"${runner}\" \"${STORE}/${jid}.exec.sh\" \"${STORE}/.wake-${jid}\" \"${STORE}/${jid}.log\" \"${STORE}/${jid}.runlog\" \"${STORE}/${jid}.prompt\" \"${STORE}/${jid}.meta\""
             printf '%s\n' "    exit 0"
             printf '%s\n' "fi"
         fi
@@ -930,8 +941,10 @@ cancel_all_jobs() {
         if [ -f "$STORE/.wake-${fname}" ]; then
             local wake_time
             wake_time=$(cat "$STORE/.wake-${fname}")
-            if ! sudo -n pmset schedule cancel wake "$wake_time" 2>/dev/null; then
-                wake_fail=true
+            if _validate_wake_time "$wake_time"; then
+                if ! sudo -n pmset schedule cancel wake "$wake_time" 2>/dev/null; then
+                    wake_fail=true
+                fi
             fi
             rm -f "$STORE/.wake-${fname}"
         fi
@@ -970,9 +983,11 @@ cancel_job() {
     if [ -f "$STORE/.wake-${jid}" ]; then
         local wake_time
         wake_time=$(cat "$STORE/.wake-${jid}")
-        if ! sudo -n pmset schedule cancel wake "$wake_time" 2>/dev/null; then
-            _err "$(_t "Admin password required to cancel pmset wake:" "pmset wake 취소를 위해 관리자 비밀번호가 필요합니다:")"
-            sudo pmset schedule cancel wake "$wake_time" || _err "$(_t "Warning: pmset wake cancellation failed" "경고: pmset wake 취소 실패")"
+        if _validate_wake_time "$wake_time"; then
+            if ! sudo -n pmset schedule cancel wake "$wake_time" 2>/dev/null; then
+                _err "$(_t "Admin password required to cancel pmset wake:" "pmset wake 취소를 위해 관리자 비밀번호가 필요합니다:")"
+                sudo pmset schedule cancel wake "$wake_time" || _err "$(_t "Warning: pmset wake cancellation failed" "경고: pmset wake 취소 실패")"
+            fi
         fi
         rm -f "$STORE/.wake-${jid}"
     fi
@@ -1134,7 +1149,9 @@ retime_job() {
     if [ -f "$STORE/.wake-${jid}" ]; then
         local old_wake
         old_wake=$(cat "$STORE/.wake-${jid}")
-        sudo -n pmset schedule cancel wake "$old_wake" 2>/dev/null || true
+        if _validate_wake_time "$old_wake"; then
+            sudo -n pmset schedule cancel wake "$old_wake" 2>/dev/null || true
+        fi
         rm -f "$STORE/.wake-${jid}"
     fi
 
@@ -1314,10 +1331,30 @@ else
         DIR="$(pwd)"
         PROMPT="$arg2"
     elif [[ "$arg2" =~ ^[a-zA-Z0-9_.-]+$ ]] && resolve_session_dir "$arg2" >/dev/null 2>&1; then
-        MODE="resume"
-        SID="$arg2"
-        PROMPT=""
         _AMBIGUOUS_RESUME=true
+        if [ -t 0 ]; then
+            printf "$(_t "Session '%s' found. Resume it? [y/N] (N = use as prompt) " "세션 '%s'을 찾았습니다. 재개할까요? [y/N] (N = 프롬프트로 사용) ")" "$arg2"
+            local _confirm
+            read -r _confirm
+            case "$_confirm" in
+                y|Y|yes|YES)
+                    MODE="resume"
+                    SID="$arg2"
+                    PROMPT=""
+                    ;;
+                *)
+                    MODE="new"
+                    DIR="$(pwd)"
+                    PROMPT="$arg2"
+                    _AMBIGUOUS_RESUME=false
+                    ;;
+            esac
+        else
+            MODE="new"
+            DIR="$(pwd)"
+            PROMPT="$arg2"
+            _AMBIGUOUS_RESUME=false
+        fi
     else
         MODE="new"
         DIR="$(pwd)"
@@ -1341,9 +1378,6 @@ else
     }
     validate_dir_path "$DIR"
     echo "$(_t "Mode: resume session" "모드: 세션 재개") (${SID})"
-    if $_AMBIGUOUS_RESUME; then
-        _err "$(_t "  (To use as prompt: ca $TIME_STR <dir> '$SID')" "  (프롬프트로 사용하려면: ca $TIME_STR <dir> '$SID')")"
-    fi
     id_prefix="res"
 fi
 
