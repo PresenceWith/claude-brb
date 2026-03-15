@@ -1,7 +1,7 @@
 PREFIX ?= /usr/local
 BINDIR ?= $(PREFIX)/bin
 
-.PHONY: install install-user uninstall uninstall-user test
+.PHONY: install install-user uninstall uninstall-user test release
 
 install:
 	install -m 755 claude-at.sh $(BINDIR)/claude-at
@@ -30,3 +30,13 @@ test:
 	@bash claude-at.sh --version | grep -q "claude-at" && echo "  PASS: --version" || echo "  FAIL: --version"
 	@bash claude-at.sh --help >/dev/null 2>&1 && echo "  PASS: --help" || echo "  FAIL: --help"
 	@echo "Done."
+
+release:
+	@[ -n "$(V)" ] || { echo "Usage: make release V=x.y.z"; exit 1; }
+	@echo "Releasing v$(V)..."
+	@sed -i '' 's/^VERSION="[^"]*"/VERSION="$(V)"/' claude-at.sh
+	@git add claude-at.sh
+	@git commit -m "chore: bump version to $(V)"
+	@git tag "v$(V)"
+	@git push origin main --tags
+	@echo "Done. GitHub Actions will create the release and update Homebrew."
