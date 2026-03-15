@@ -18,10 +18,18 @@ Schedule [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI sessi
 
 ## Installation
 
-### Recommended (user-local)
+### Homebrew (Recommended)
 
 ```bash
-git clone https://github.com/presence-me/claude-at.git
+brew install PresenceWith/tap/claude-at
+```
+
+This installs `claude-at` and `ca` (symlink) to your Homebrew prefix.
+
+### User-local
+
+```bash
+git clone https://github.com/PresenceWith/claude-at.git
 cd claude-at
 make install-user
 ```
