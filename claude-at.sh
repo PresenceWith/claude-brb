@@ -725,6 +725,7 @@ _generate_exec() {
     {
         printf '%s\n' '#!/bin/bash'
         printf 'export PATH="%s$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"\n' "$path_prefix"
+        printf '%s\n' 'echo ""; date "+  %Y-%m-%d %H:%M:%S  claude-at"; echo ""'
 
         if [ "$meta_type" = "once" ]; then
             # One-time: read prompt BEFORE setting cleanup trap
