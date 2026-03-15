@@ -1,0 +1,77 @@
+name: Release & Update Homebrew
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create "${{ github.ref_name }}" --title "${{ github.ref_name }}" --generate-notes
+
+      - name: Update Homebrew formula
+        env:
+          TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION_NUM="${VERSION#v}"
+          TARBALL_URL="https://github.com/${{ github.repository }}/archive/refs/tags/${VERSION}.tar.gz"
+
+          # Download and compute SHA256
+          SHA256=$(curl -sL "$TARBALL_URL" | sha256sum | awk '{print $1}')
+
+          # Clone homebrew-tap
+          git clone https://x-access-token:${TAP_TOKEN}@github.com/PresenceWith/homebrew-tap.git /tmp/homebrew-tap
+          cd /tmp/homebrew-tap
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Update formula
+          cat > Formula/claude-at.rb << FORMULA
+          class ClaudeAt < Formula
+            desc "Schedule Claude Code CLI sessions via macOS launchd"
+            homepage "https://github.com/PresenceWith/claude-at"
+            url "${TARBALL_URL}"
+            sha256 "${SHA256}"
+            license "MIT"
+
+            depends_on :macos
+
+            def install
+              bin.install "claude-at.sh" => "claude-at"
+              bin.install_symlink "claude-at" => "ca"
+            end
+
+            def caveats
+              <<~EOS
+                claude-at requires the Claude Code CLI to be installed.
+                Install it via: npm install -g @anthropic-ai/claude-code
+
+                If you have an existing alias for 'ca' in your .zshrc or .bashrc,
+                remove it to avoid conflicts with the Homebrew-installed version.
+              EOS
+            end
+
+            test do
+              assert_match "claude-at", shell_output("#{bin}/claude-at --version")
+            end
+          end
+          FORMULA
+
+          # Remove leading whitespace from heredoc
+          sed -i 's/^          //' Formula/claude-at.rb
+
+          git add Formula/claude-at.rb
+          git commit -m "Update claude-at to ${VERSION}"
+          git push
