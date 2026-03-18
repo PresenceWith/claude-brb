@@ -1448,6 +1448,13 @@ upgrade_all_jobs() {
         if ! grep -q '^META_FLAGS=' "$f" 2>/dev/null; then
             printf "META_FLAGS=''\n" >> "$f"
         fi
+        # Add META_HEADLESS if missing (defaults to non-headless)
+        if ! grep -q '^META_HEADLESS=' "$f" 2>/dev/null; then
+            printf "META_HEADLESS=''\n" >> "$f"
+        fi
+        if ! grep -q '^META_QUIET=' "$f" 2>/dev/null; then
+            printf "META_QUIET=''\n" >> "$f"
+        fi
 
         _generate_exec "$fname"
         _generate_runner "$fname"
