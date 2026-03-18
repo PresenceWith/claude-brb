@@ -261,6 +261,8 @@ _load_meta() {
     META_SCHEDULE=$(_read_meta "$meta_file" META_SCHEDULE)
     META_TIMES=$(_read_meta "$meta_file" META_TIMES)
     META_WEEKDAYS=$(_read_meta "$meta_file" META_WEEKDAYS)
+    META_HEADLESS=$(_read_meta "$meta_file" META_HEADLESS)
+    META_QUIET=$(_read_meta "$meta_file" META_QUIET)
 }
 
 # --- day name → launchd Weekday number ---
@@ -1349,6 +1351,24 @@ upgrade_all_jobs() {
     fi
     exit 0
 }
+
+# --- Pre-process headless/quiet flags ---
+_HEADLESS=''
+_QUIET=''
+_new_args=()
+for _arg in "$@"; do
+    case "$_arg" in
+        -H|--headless) _HEADLESS='yes' ;;
+        -q|--quiet)    _QUIET='yes' ;;
+        *)             _new_args+=("$_arg") ;;
+    esac
+done
+set -- "${_new_args[@]}"
+
+if [ "$_QUIET" = 'yes' ] && [ "$_HEADLESS" != 'yes' ]; then
+    _err "$(_MSG_QUIET_REQUIRES_HEADLESS)"
+    exit 1
+fi
 
 case "${1:-}" in
     -h|--help)    show_help ;;
