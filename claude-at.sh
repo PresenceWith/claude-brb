@@ -1524,6 +1524,16 @@ if [ "${1:-}" = "-r" ] || [ "${1:-}" = "--repeat" ]; then
     RPT_SCHED_ID="${RPT_SCHEDULE//,/-}"
     JOB_ID=$(_make_job_id "rpt.${RPT_SCHED_ID}")
 
+    # Headless: check permissions before writing metadata
+    _HL_FLAGS="$CLAUDE_AT_FLAGS"
+    if [ "$_HEADLESS" = 'yes' ]; then
+        local extra_flag
+        extra_flag=$(_headless_perm_check "$CLAUDE_AT_FLAGS")
+        if [ -n "$extra_flag" ]; then
+            _HL_FLAGS="${CLAUDE_AT_FLAGS:+${CLAUDE_AT_FLAGS} }${extra_flag}"
+        fi
+    fi
+
     # Save prompt & metadata
     printf '%s' "$RPT_PROMPT" | _atomic_write "$STORE/${JOB_ID}.prompt"
     {
@@ -1531,14 +1541,16 @@ if [ "${1:-}" = "-r" ] || [ "${1:-}" = "--repeat" ]; then
         printf "META_MODE='new'\n"
         printf "META_DIR='%s'\n" "$RPT_DIR"
         printf "META_SID=''\n"
-        printf "META_FLAGS='%s'\n" "$CLAUDE_AT_FLAGS"
+        printf "META_FLAGS='%s'\n" "$_HL_FLAGS"
         printf "META_SCHEDULE='%s'\n" "$RPT_SCHEDULE"
         printf "META_TIMES='%s'\n" "$RPT_TIMES"
         printf "META_WEEKDAYS='%s'\n" "$RPT_WEEKDAYS"
+        [ "$_HEADLESS" = 'yes' ] && printf "META_HEADLESS='yes'\n"
+        [ "$_QUIET" = 'yes' ] && printf "META_QUIET='yes'\n"
     } | _atomic_write "$STORE/${JOB_ID}.meta"
 
     # Show warning if flags are set
-    [ -n "$CLAUDE_AT_FLAGS" ] && _err "$(_t "WARNING: This job will run with:" "경고: 이 작업은 다음 플래그로 실행됩니다:") $CLAUDE_AT_FLAGS"
+    [ -n "$_HL_FLAGS" ] && _err "$(_t "WARNING: This job will run with:" "경고: 이 작업은 다음 플래그로 실행됩니다:") $_HL_FLAGS"
 
     _ensure_wake_helper
 
@@ -1557,7 +1569,11 @@ if [ "${1:-}" = "-r" ] || [ "${1:-}" = "--repeat" ]; then
 
     _schedule_next_repeat_wake "$JOB_ID" "$RPT_WEEKDAYS" "$RPT_TIMES"
 
-    echo "$(_t "Mode: repeat" "모드: 반복") (${RPT_DIR})"
+    if [ "$_HEADLESS" = 'yes' ]; then
+        echo "$(_t "Mode: repeat (headless)" "모드: 반복 (헤드리스)") (${RPT_DIR})"
+    else
+        echo "$(_t "Mode: repeat" "모드: 반복") (${RPT_DIR})"
+    fi
     echo "$(_t "Scheduled:" "반복 예약 완료:") ${RPT_SCHEDULE} ${RPT_TIMES} (Job ID: ${JOB_ID})"
     echo "$(_t "Check:" "확인:") ca -l"
     exit 0
