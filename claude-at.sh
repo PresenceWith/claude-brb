@@ -1490,7 +1490,7 @@ for _arg in "$@"; do
         *)             _new_args+=("$_arg") ;;
     esac
 done
-set -- "${_new_args[@]}"
+set -- ${_new_args[@]+"${_new_args[@]}"}
 
 if [ "$_QUIET" = 'yes' ] && [ "$_HEADLESS" != 'yes' ]; then
     _err "$(_MSG_QUIET_REQUIRES_HEADLESS)"
@@ -1562,7 +1562,6 @@ if [ "${1:-}" = "-r" ] || [ "${1:-}" = "--repeat" ]; then
     # Headless: check permissions before writing metadata
     _HL_FLAGS="$CLAUDE_AT_FLAGS"
     if [ "$_HEADLESS" = 'yes' ]; then
-        local extra_flag
         extra_flag=$(_headless_perm_check "$CLAUDE_AT_FLAGS")
         if [ -n "$extra_flag" ]; then
             _HL_FLAGS="${CLAUDE_AT_FLAGS:+${CLAUDE_AT_FLAGS} }${extra_flag}"
