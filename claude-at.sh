@@ -1056,7 +1056,7 @@ _update_meta_field() {
 list_jobs() {
     mkdir -p "$STORE"
     local found=false
-    printf "%-10s | %-22s | %-34s | %-24s | %s\n" "TYPE" "SCHEDULE" "JOB ID" "TARGET" "PROMPT"
+    printf "%-10s | %-22s | %-34s | %-28s | %s\n" "TYPE" "SCHEDULE" "JOB ID" "TARGET" "PROMPT"
     printf '%0.s-' {1..120}; echo
     local lines=""
     for f in "$STORE"/*.meta; do
@@ -1092,6 +1092,18 @@ list_jobs() {
             fi
         fi
 
+        # Headless marker
+        local m_headless m_quiet
+        m_headless=$(_read_meta "$f" META_HEADLESS)
+        m_quiet=$(_read_meta "$f" META_QUIET)
+        if [ "${m_headless:-}" = "yes" ]; then
+            if [ "${m_quiet:-}" = "yes" ]; then
+                target_display="[Hq] ${target_display}"
+            else
+                target_display="[H] ${target_display}"
+            fi
+        fi
+
         prompt_display=""
         [ -f "$STORE/${fname}.prompt" ] && prompt_display=$(head -1 "$STORE/${fname}.prompt" | cut -c1-50)
 
@@ -1100,7 +1112,7 @@ list_jobs() {
     if $found; then
         echo "$lines" | sort | while IFS= read -r line; do
             [ -z "$line" ] && continue
-            echo "$line" | awk -F ' \\| ' '{printf "%-10s | %-22s | %-34s | %-24s | %s\n", $1, $2, $3, $4, $5}'
+            echo "$line" | awk -F ' \\| ' '{printf "%-10s | %-22s | %-34s | %-28s | %s\n", $1, $2, $3, $4, $5}'
         done
     else
         echo "$(_t "(no jobs)" "(예약 없음)")"
