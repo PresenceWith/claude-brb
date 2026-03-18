@@ -1176,6 +1176,7 @@ cancel_all_jobs() {
         rm -f "$STORE/${fname}.runlog"
         rm -f "$STORE/${fname}.prompt"
         rm -f "$STORE/${fname}.meta"
+        rm -f "$STORE/${fname}.out"
         if [ -f "$STORE/.wake-${fname}" ]; then
             local wake_time
             wake_time=$(cat "$STORE/.wake-${fname}")
@@ -1218,6 +1219,7 @@ cancel_job() {
     rm -f "$STORE/${jid}.runlog"
     rm -f "$STORE/${jid}.prompt"
     rm -f "$STORE/${jid}.meta"
+    rm -f "$STORE/${jid}.out"
     if [ -f "$STORE/.wake-${jid}" ]; then
         local wake_time
         wake_time=$(cat "$STORE/.wake-${jid}")
