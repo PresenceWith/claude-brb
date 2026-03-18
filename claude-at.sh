@@ -727,6 +727,34 @@ _check_claude() {
     fi
 }
 
+# Headless permission check: warn if --dangerously-skip-permissions not set
+# Outputs the flag to stdout ONLY if user accepts; all prompts/warnings go to stderr.
+_headless_perm_check() {
+    local current_flags="$1"
+    # Already has the flag — nothing to do
+    [[ "$current_flags" == *"--dangerously-skip-permissions"* ]] && return 0
+
+    _MSG_HEADLESS_PERM_WARN >&2
+    echo "" >&2
+    if [ -t 0 ]; then
+        printf "$(_t "  Add --dangerously-skip-permissions to this job? [y/N] " "  이 작업에 --dangerously-skip-permissions를 추가할까요? [y/N] ")" >&2
+        local confirm
+        read -r confirm
+        case "$confirm" in
+            y|Y|yes|YES)
+                echo "--dangerously-skip-permissions"
+                return 0
+                ;;
+            *)
+                _err "$(_t "  Proceeding without it. The job may stall on permission prompts." "  플래그 없이 진행합니다. 작업이 권한 프롬프트에서 멈출 수 있습니다.")"
+                return 0
+                ;;
+        esac
+    else
+        _err "$(_t "  Warning: headless job may stall without --dangerously-skip-permissions" "  경고: --dangerously-skip-permissions 없이 헤드리스 작업이 멈출 수 있습니다")"
+    fi
+}
+
 # Detect claude binary directory for generated scripts
 _claude_bin_dir() {
     if command -v claude >/dev/null 2>&1; then
