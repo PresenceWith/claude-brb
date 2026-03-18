@@ -658,6 +658,24 @@ _applescript_notify() {
     printf '%s\n' 'osascript -e "display notification \"$_NOTIF\" with title \"claude-at\""'
 }
 
+# Generate notification lines for headless runner scripts
+_applescript_notify_headless() {
+    local action="$1"  # "start" or "done"
+    local info="$2"
+    local out_file="${3:-}"  # optional, for completion notification
+
+    if [ "$action" = "start" ]; then
+        printf '%s\n' "[[ \"\${LANG:-}\" == ko* ]] && _NOTIF=\"헤드리스 Claude 작업 시작 (${info})\" || _NOTIF=\"Headless Claude task started (${info})\""
+    else
+        if [ -n "$out_file" ]; then
+            printf '%s\n' "[[ \"\${LANG:-}\" == ko* ]] && _NOTIF=\"헤드리스 Claude 작업 완료. 출력: ${out_file}\" || _NOTIF=\"Headless Claude task completed. Output: ${out_file}\""
+        else
+            printf '%s\n' "[[ \"\${LANG:-}\" == ko* ]] && _NOTIF=\"헤드리스 Claude 작업 완료 (${info})\" || _NOTIF=\"Headless Claude task completed (${info})\""
+        fi
+    fi
+    printf '%s\n' 'osascript -e "display notification \"$_NOTIF\" with title \"claude-at\""'
+}
+
 # Generate AppleScript block to open terminal with exec script (with retry)
 _applescript_run_in_terminal() {
     local terminal="$1"
