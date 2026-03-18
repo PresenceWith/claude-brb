@@ -97,6 +97,8 @@ Schedule:
 
 Options:
   -r, --repeat    반복 예약
+  -H, --headless  헤드리스 모드 (터미널 없이 claude -p 실행)
+  -q, --quiet     출력 폐기 (-H와 함께 사용)
   -l, --list      예약 목록
   -c, --cancel    예약 취소
   -m, --modify    프롬프트 수정
@@ -116,6 +118,8 @@ Note:
   잠자기 해제(pmset wake)는 덮개가 열려있거나 외부 모니터가 연결된
   상태에서만 정상 작동합니다. 덮개가 닫힌 채 외부 모니터 없이는
   하드웨어는 깨어나지만 터미널 창을 열 수 없어 실행이 실패합니다.
+  헤드리스 모드(-H)에서는 터미널이 열리지 않으므로 덮개가 닫힌
+  상태에서도 실행 가능합니다.
 
 Examples:
   ca 03:00 "Write unit tests"                           # 현재 폴더에서 새 세션
@@ -125,6 +129,9 @@ Examples:
   ca -r daily 07:00 "Check status"                      # 매일 7시
   ca -r weekday 09:00 "Standup summary"                 # 평일 9시
   ca -r mon,wed,fri 14:00 /Users/dev/app "Code review"  # 월수금 14시
+  ca -H +30m "Review PR"                               # 헤드리스 일회성
+  ca -H -r daily 09:00 "Check status"                  # 헤드리스 반복
+  ca -H -q +1h "Background task"                       # 헤드리스 (출력 폐기)
 
 Requires: bash 3.2+, zsh (interactive prompt editing)
 HELP
@@ -167,6 +174,8 @@ Schedule:
 
 Options:
   -r, --repeat    recurring schedule
+  -H, --headless  headless mode (run claude -p without terminal)
+  -q, --quiet     discard output (use with -H)
   -l, --list      list jobs
   -c, --cancel    cancel job
   -m, --modify    modify prompt
@@ -186,6 +195,8 @@ Note:
   Wake-from-sleep (pmset wake) requires the lid to be open or an external
   monitor connected. With the lid closed and no display, the hardware wakes
   but the terminal window cannot open, so the job will fail.
+  Headless mode (-H) does not open a terminal, so it can run even
+  with the lid closed.
 
 Examples:
   ca 03:00 "Write unit tests"                           # new session at 3am
@@ -195,6 +206,9 @@ Examples:
   ca -r daily 07:00 "Check status"                      # daily at 7am
   ca -r weekday 09:00 "Standup summary"                 # weekdays at 9am
   ca -r mon,wed,fri 14:00 /Users/dev/app "Code review"  # MWF at 2pm
+  ca -H +30m "Review PR"                               # headless one-time
+  ca -H -r daily 09:00 "Check status"                  # headless recurring
+  ca -H -q +1h "Background task"                       # headless, discard output
 
 Requires: bash 3.2+, zsh (interactive prompt editing)
 HELP
