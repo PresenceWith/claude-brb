@@ -841,21 +841,21 @@ _generate_exec() {
                 # Repeat: no cleanup, read prompt after cd
                 printf 'cd "%s"\n' "${META_DIR}"
                 $has_prompt && printf 'PROMPT=$(<"%s")\n' "${prompt_file}"
-        fi
+            fi
 
-        if [ "${META_MODE:-new}" = "resume" ] && [ -n "${META_SID}" ]; then
-            if $has_prompt; then
-                printf 'caffeinate -i claude%s --resume '\''%s'\'' "$PROMPT"\n' "$flags_part" "${META_SID}"
+            if [ "${META_MODE:-new}" = "resume" ] && [ -n "${META_SID}" ]; then
+                if $has_prompt; then
+                    printf 'caffeinate -i claude%s --resume '\''%s'\'' "$PROMPT"\n' "$flags_part" "${META_SID}"
+                else
+                    printf 'caffeinate -i claude%s --resume '\''%s'\''\n' "$flags_part" "${META_SID}"
+                fi
             else
-                printf 'caffeinate -i claude%s --resume '\''%s'\''\n' "$flags_part" "${META_SID}"
+                if $has_prompt; then
+                    printf 'caffeinate -i claude%s "$PROMPT"\n' "$flags_part"
+                else
+                    printf 'caffeinate -i claude%s\n' "$flags_part"
+                fi
             fi
-        else
-            if $has_prompt; then
-                printf 'caffeinate -i claude%s "$PROMPT"\n' "$flags_part"
-            else
-                printf 'caffeinate -i claude%s\n' "$flags_part"
-            fi
-        fi
         fi
     } | _atomic_write "$exec_script"
     chmod +x "$exec_script"
@@ -946,7 +946,13 @@ _generate_runner() {
             if [ "${META_QUIET:-}" = "yes" ]; then
                 printf '%s\n' "bash \"${exec_script}\" > /dev/null 2>&1"
             else
-                printf '%s\n' "bash \"${exec_script}\" > \"${STORE}/${jid}.out\" 2>&1"
+                if [ "$meta_type" = "repeat" ]; then
+                    # Repeat: append with timestamp header so previous runs are preserved
+                    printf '%s\n' "echo \"--- \$(date '+%Y-%m-%d %H:%M:%S') ---\" >> \"${STORE}/${jid}.out\""
+                    printf '%s\n' "bash \"${exec_script}\" >> \"${STORE}/${jid}.out\" 2>&1"
+                else
+                    printf '%s\n' "bash \"${exec_script}\" > \"${STORE}/${jid}.out\" 2>&1"
+                fi
             fi
 
             if [ "$meta_type" = "once" ]; then
@@ -1350,6 +1356,7 @@ retime_job() {
     local META_TYPE="" META_MODE="" META_DIR="" META_SID="" META_FLAGS=""
     local META_TARGET_FMT="" META_TARGET_YMD=""
     local META_SCHEDULE="" META_TIMES="" META_WEEKDAYS=""
+    local META_HEADLESS="" META_QUIET=""
     _load_meta "$meta_file"
     local meta_type="${META_TYPE:-once}"
 
