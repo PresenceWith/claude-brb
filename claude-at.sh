@@ -1635,13 +1635,23 @@ else
     fi
 fi
 
+# Headless: block resume mode
+if [ "$_HEADLESS" = 'yes' ] && [ "$MODE" = "resume" ]; then
+    _err "$(_MSG_HEADLESS_NO_RESUME)"
+    exit 1
+fi
+
 # --- Mode-specific validation ---
 if [ "$MODE" = "new" ]; then
     validate_dir_path "$DIR"
     [ ! -d "$DIR" ] && { _err "$(_t "Error: directory not found" "Error: 디렉터리를 찾을 수 없습니다"): $DIR"; exit 1; }
     DIR=$(cd "$DIR" && pwd)
     validate_dir_path "$DIR"
-    echo "$(_t "Mode: new session" "모드: 새 세션") (${DIR})"
+    if [ "$_HEADLESS" = 'yes' ]; then
+        echo "$(_t "Mode: new session (headless)" "모드: 새 세션 (헤드리스)") (${DIR})"
+    else
+        echo "$(_t "Mode: new session" "모드: 새 세션") (${DIR})"
+    fi
     id_prefix="new"
 else
     validate_job_id "$SID"
@@ -1666,6 +1676,15 @@ target_day=$((10#$(date -r "$target" +%d)))
 target_month=$((10#$(date -r "$target" +%m)))
 target_ymd=$(date -r "$target" +%Y%m%d)
 
+# Headless: check permissions before writing metadata
+_HL_FLAGS="$CLAUDE_AT_FLAGS"
+if [ "$_HEADLESS" = 'yes' ]; then
+    extra_flag=$(_headless_perm_check "$CLAUDE_AT_FLAGS")
+    if [ -n "$extra_flag" ]; then
+        _HL_FLAGS="${CLAUDE_AT_FLAGS:+${CLAUDE_AT_FLAGS} }${extra_flag}"
+    fi
+fi
+
 # --- Save prompt & metadata ---
 printf '%s' "$PROMPT" | _atomic_write "$STORE/${JOB_ID}.prompt"
 {
@@ -1673,16 +1692,18 @@ printf '%s' "$PROMPT" | _atomic_write "$STORE/${JOB_ID}.prompt"
     printf "META_MODE='%s'\n" "$MODE"
     printf "META_DIR='%s'\n" "$DIR"
     printf "META_SID='%s'\n" "${SID:-}"
-    printf "META_FLAGS='%s'\n" "$CLAUDE_AT_FLAGS"
+    printf "META_FLAGS='%s'\n" "$_HL_FLAGS"
     printf "META_TARGET_FMT='%s'\n" "$target_fmt"
     printf "META_TARGET_YMD='%s'\n" "$target_ymd"
     printf "META_SCHEDULE=''\n"
     printf "META_TIMES=''\n"
     printf "META_WEEKDAYS=''\n"
+    [ "$_HEADLESS" = 'yes' ] && printf "META_HEADLESS='yes'\n"
+    [ "$_QUIET" = 'yes' ] && printf "META_QUIET='yes'\n"
 } | _atomic_write "$STORE/${JOB_ID}.meta"
 
 # Show warning if flags are set
-[ -n "$CLAUDE_AT_FLAGS" ] && _err "$(_t "WARNING: This job will run with:" "경고: 이 작업은 다음 플래그로 실행됩니다:") $CLAUDE_AT_FLAGS"
+[ -n "$_HL_FLAGS" ] && _err "$(_t "WARNING: This job will run with:" "경고: 이 작업은 다음 플래그로 실행됩니다:") $_HL_FLAGS"
 
 # --- Generate scripts ---
 _generate_exec "$JOB_ID"
