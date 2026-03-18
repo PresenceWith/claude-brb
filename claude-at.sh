@@ -11,6 +11,25 @@ _lang_code="${CLAUDE_AT_LANG:-${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}}"
 _t() { if [ "$_LANG_KO" -eq 1 ]; then echo "$2"; else echo "$1"; fi; }
 _err() { echo "$@" >&2; }
 
+# --- headless mode messages ---
+_MSG_QUIET_REQUIRES_HEADLESS() { _t "-q/--quiet requires -H/--headless" "-q/--quiet는 -H/--headless와 함께 사용해야 합니다"; }
+_MSG_HEADLESS_NO_RESUME() { _t "Headless mode does not support session resume" "헤드리스 모드는 세션 이어하기를 지원하지 않습니다"; }
+_MSG_HEADLESS_PERM_WARN() {
+    if [ "$_LANG_KO" -eq 1 ]; then
+        cat <<'MSG'
+⚠ 헤드리스 모드는 터미널 없이 실행됩니다. Claude가 대화형으로
+  권한을 요청할 수 없습니다. --dangerously-skip-permissions 없이는
+  작업이 승인 대기 중 멈출 수 있습니다.
+MSG
+    else
+        cat <<'MSG'
+⚠ Headless mode runs without a terminal. Claude cannot ask for
+  permission interactively. Without --dangerously-skip-permissions,
+  the job may hang waiting for approval.
+MSG
+    fi
+}
+
 # --- macOS only ---
 [[ "$(uname)" == "Darwin" ]] || { _err "$(_t "Error: macOS only" "Error: macOS 전용입니다")"; exit 1; }
 
