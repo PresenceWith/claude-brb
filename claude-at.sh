@@ -830,6 +830,7 @@ _generate_runner() {
     local META_TYPE="" META_MODE="" META_DIR="" META_SID="" META_FLAGS=""
     local META_TARGET_FMT="" META_TARGET_YMD=""
     local META_SCHEDULE="" META_TIMES="" META_WEEKDAYS=""
+    local META_HEADLESS="" META_QUIET=""
     _load_meta "$meta_file"
 
     # Defense-in-depth: re-validate loaded meta values
@@ -896,22 +897,46 @@ _generate_runner() {
             printf '%s\n' "fi"
         fi
 
-        # Wake display and prevent idle sleep (needed when waking from pmset schedule)
-        printf '%s\n' 'caffeinate -u -t 30 &'
-        printf '%s\n' 'sleep 3'
+        if [ "${META_HEADLESS:-}" = "yes" ]; then
+            # --- headless runner: no terminal, direct execution ---
+            _applescript_notify_headless "start" "$info_label"
 
-        # Notification (shared between repeat and once)
-        _applescript_notify "${META_MODE:-new}" "$info_label"
+            if [ "${META_QUIET:-}" = "yes" ]; then
+                printf '%s\n' "bash \"${exec_script}\" > /dev/null 2>&1"
+            else
+                printf '%s\n' "bash \"${exec_script}\" > \"${STORE}/${jid}.out\" 2>&1"
+            fi
 
-        # Open terminal (shared, with iTerm2 support)
-        _applescript_run_in_terminal "$safe_terminal" "$exec_script"
+            if [ "$meta_type" = "once" ]; then
+                if [ "${META_QUIET:-}" = "yes" ]; then
+                    _applescript_notify_headless "done" "$info_label"
+                else
+                    _applescript_notify_headless "done" "$info_label" "${STORE}/${jid}.out"
+                fi
+                # Runner handles ALL cleanup for headless one-time jobs
+                # Note: .out file is intentionally preserved for user inspection
+                printf '%s\n' "rm -f \"${PLIST_DIR}/${LABEL_PREFIX}.${jid}.plist\" \"${runner}\" \"${exec_script}\" \"${STORE}/.wake-${jid}\" \"${STORE}/${jid}.log\" \"${STORE}/${jid}.runlog\" \"${STORE}/${jid}.prompt\" \"${STORE}/${jid}.meta\""
+                printf '%s\n' "launchctl bootout gui/\$(id -u)/${LABEL_PREFIX}.${jid} 2>/dev/null"
+            fi
+        else
+            # --- standard runner: wake display, open terminal ---
+            # Wake display and prevent idle sleep (needed when waking from pmset schedule)
+            printf '%s\n' 'caffeinate -u -t 30 &'
+            printf '%s\n' 'sleep 3'
 
-        if [ "$meta_type" = "once" ]; then
-            # One-time: clean up registration files immediately after launch
-            # (exec.sh already read prompt and will self-delete on exit)
-            printf '%s\n' "sleep 2"
-            printf '%s\n' "rm -f \"${PLIST_DIR}/${LABEL_PREFIX}.${jid}.plist\" \"${runner}\" \"${STORE}/.wake-${jid}\" \"${STORE}/${jid}.log\" \"${STORE}/${jid}.prompt\" \"${STORE}/${jid}.meta\""
-            printf '%s\n' "launchctl bootout gui/\$(id -u)/${LABEL_PREFIX}.${jid} 2>/dev/null"
+            # Notification (shared between repeat and once)
+            _applescript_notify "${META_MODE:-new}" "$info_label"
+
+            # Open terminal (shared, with iTerm2 support)
+            _applescript_run_in_terminal "$safe_terminal" "$exec_script"
+
+            if [ "$meta_type" = "once" ]; then
+                # One-time: clean up registration files immediately after launch
+                # (exec.sh already read prompt and will self-delete on exit)
+                printf '%s\n' "sleep 2"
+                printf '%s\n' "rm -f \"${PLIST_DIR}/${LABEL_PREFIX}.${jid}.plist\" \"${runner}\" \"${STORE}/.wake-${jid}\" \"${STORE}/${jid}.log\" \"${STORE}/${jid}.prompt\" \"${STORE}/${jid}.meta\""
+                printf '%s\n' "launchctl bootout gui/\$(id -u)/${LABEL_PREFIX}.${jid} 2>/dev/null"
+            fi
         fi
     } | _atomic_write "$runner"
 
