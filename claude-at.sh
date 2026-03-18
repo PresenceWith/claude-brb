@@ -744,6 +744,7 @@ _generate_exec() {
     local META_TYPE="" META_MODE="" META_DIR="" META_SID="" META_FLAGS=""
     local META_TARGET_FMT="" META_TARGET_YMD=""
     local META_SCHEDULE="" META_TIMES="" META_WEEKDAYS=""
+    local META_HEADLESS="" META_QUIET=""
     _load_meta "$meta_file"
 
     # Defense-in-depth: re-validate loaded meta values
@@ -764,21 +765,40 @@ _generate_exec() {
     {
         printf '%s\n' '#!/bin/bash'
         printf 'export PATH="%s$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"\n' "$path_prefix"
-        printf '%s\n' 'echo ""'
-        printf '%s\n' 'printf "\033[2m  ─────────────────────────────────\033[0m\n"'
-        printf '%s\n' 'printf "\033[1m  %s\033[0m  \033[2mclaude-at\033[0m\n" "$(date '\''+%Y-%m-%d %H:%M:%S'\'')"'
-        printf '%s\n' 'printf "\033[2m  ─────────────────────────────────\033[0m\n"'
-        printf '%s\n' 'echo ""'
 
-        if [ "$meta_type" = "once" ]; then
-            # One-time: read prompt BEFORE setting cleanup trap
-            $has_prompt && printf 'PROMPT=$(<"%s")\n' "${prompt_file}"
-            printf '%s\n' "trap 'launchctl bootout gui/\$(id -u)/${LABEL_PREFIX}.${jid} 2>/dev/null; rm -f \"${PLIST_DIR}/${LABEL_PREFIX}.${jid}.plist\" \"${STORE}/${jid}.sh\" \"${exec_script}\" \"${STORE}/.wake-${jid}\" \"${STORE}/${jid}.log\" \"${STORE}/${jid}.runlog\" \"${STORE}/${jid}.prompt\" \"${STORE}/${jid}.meta\"' EXIT"
-            printf 'cd "%s"\n' "${META_DIR}"
+        if [ "${META_HEADLESS:-}" = "yes" ]; then
+            # --- headless exec: claude -p, no terminal decorations ---
+            # No EXIT trap — runner handles all cleanup for headless jobs.
+            if [ "$meta_type" = "once" ]; then
+                $has_prompt && printf 'PROMPT=$(<"%s")\n' "${prompt_file}"
+                printf 'cd "%s" || exit 1\n' "${META_DIR}"
+            else
+                printf 'cd "%s" || exit 1\n' "${META_DIR}"
+                $has_prompt && printf 'PROMPT=$(<"%s")\n' "${prompt_file}"
+            fi
+
+            if $has_prompt; then
+                printf 'caffeinate -i claude -p%s "$PROMPT"\n' "$flags_part"
+            else
+                printf 'caffeinate -i claude -p%s\n' "$flags_part"
+            fi
         else
-            # Repeat: no cleanup, read prompt after cd
-            printf 'cd "%s"\n' "${META_DIR}"
-            $has_prompt && printf 'PROMPT=$(<"%s")\n' "${prompt_file}"
+            # --- standard interactive exec ---
+            printf '%s\n' 'echo ""'
+            printf '%s\n' 'printf "\033[2m  ─────────────────────────────────\033[0m\n"'
+            printf '%s\n' 'printf "\033[1m  %s\033[0m  \033[2mclaude-at\033[0m\n" "$(date '\''+%Y-%m-%d %H:%M:%S'\'')"'
+            printf '%s\n' 'printf "\033[2m  ─────────────────────────────────\033[0m\n"'
+            printf '%s\n' 'echo ""'
+
+            if [ "$meta_type" = "once" ]; then
+                # One-time: read prompt BEFORE setting cleanup trap
+                $has_prompt && printf 'PROMPT=$(<"%s")\n' "${prompt_file}"
+                printf '%s\n' "trap 'launchctl bootout gui/\$(id -u)/${LABEL_PREFIX}.${jid} 2>/dev/null; rm -f \"${PLIST_DIR}/${LABEL_PREFIX}.${jid}.plist\" \"${STORE}/${jid}.sh\" \"${exec_script}\" \"${STORE}/.wake-${jid}\" \"${STORE}/${jid}.log\" \"${STORE}/${jid}.runlog\" \"${STORE}/${jid}.prompt\" \"${STORE}/${jid}.meta\"' EXIT"
+                printf 'cd "%s"\n' "${META_DIR}"
+            else
+                # Repeat: no cleanup, read prompt after cd
+                printf 'cd "%s"\n' "${META_DIR}"
+                $has_prompt && printf 'PROMPT=$(<"%s")\n' "${prompt_file}"
         fi
 
         if [ "${META_MODE:-new}" = "resume" ] && [ -n "${META_SID}" ]; then
@@ -793,6 +813,7 @@ _generate_exec() {
             else
                 printf 'caffeinate -i claude%s\n' "$flags_part"
             fi
+        fi
         fi
     } | _atomic_write "$exec_script"
     chmod +x "$exec_script"
