@@ -13,7 +13,6 @@ _err() { echo "$@" >&2; }
 
 # --- headless mode messages ---
 _MSG_QUIET_REQUIRES_HEADLESS() { _t "-q/--quiet requires -H/--headless" "-q/--quiet는 -H/--headless와 함께 사용해야 합니다"; }
-_MSG_HEADLESS_NO_RESUME() { _t "Headless mode does not support session resume" "헤드리스 모드는 세션 이어하기를 지원하지 않습니다"; }
 _MSG_HEADLESS_PERM_WARN() {
     if [ "$_LANG_KO" -eq 1 ]; then
         cat <<'MSG'
@@ -819,10 +818,18 @@ _generate_exec() {
                 $has_prompt && printf 'PROMPT=$(<"%s")\n' "${prompt_file}"
             fi
 
-            if $has_prompt; then
-                printf 'caffeinate -i claude -p%s "$PROMPT"\n' "$flags_part"
+            if [ "${META_MODE:-new}" = "resume" ] && [ -n "${META_SID}" ]; then
+                if $has_prompt; then
+                    printf 'caffeinate -i claude -p%s --resume '\''%s'\'' "$PROMPT"\n' "$flags_part" "${META_SID}"
+                else
+                    printf 'caffeinate -i claude -p%s --resume '\''%s'\''\n' "$flags_part" "${META_SID}"
+                fi
             else
-                printf 'caffeinate -i claude -p%s\n' "$flags_part"
+                if $has_prompt; then
+                    printf 'caffeinate -i claude -p%s "$PROMPT"\n' "$flags_part"
+                else
+                    printf 'caffeinate -i claude -p%s\n' "$flags_part"
+                fi
             fi
         else
             # --- standard interactive exec ---
@@ -1674,12 +1681,6 @@ else
         DIR="$(pwd)"
         PROMPT="$arg2"
     fi
-fi
-
-# Headless: block resume mode
-if [ "$_HEADLESS" = 'yes' ] && [ "$MODE" = "resume" ]; then
-    _err "$(_MSG_HEADLESS_NO_RESUME)"
-    exit 1
 fi
 
 # --- Mode-specific validation ---
