@@ -15,13 +15,13 @@ install-user:
 
 uninstall:
 	@if ls $(HOME)/Library/LaunchAgents/com.claude-at.*.plist 1>/dev/null 2>&1; then \
-		echo "Warning: active claude-at jobs detected. Run 'ca -c all' first, then cancel recurring jobs individually."; \
+		echo "Warning: active claude-at jobs detected. Run 'ca teardown' or 'ca cancel all' first."; \
 	fi
 	rm -f $(BINDIR)/claude-at $(BINDIR)/ca
 
 uninstall-user:
 	@if ls $(HOME)/Library/LaunchAgents/com.claude-at.*.plist 1>/dev/null 2>&1; then \
-		echo "Warning: active claude-at jobs detected. Run 'ca -c all' first, then cancel recurring jobs individually."; \
+		echo "Warning: active claude-at jobs detected. Run 'ca teardown' or 'ca cancel all' first."; \
 	fi
 	rm -f $(HOME)/.local/bin/claude-at $(HOME)/.local/bin/ca
 
