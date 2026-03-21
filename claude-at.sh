@@ -1899,6 +1899,8 @@ _parse_at_flags() {
 _schedule_at() {
     [ $# -lt 2 ] && { _err "Usage: ca at <time> [flags] 'prompt'"; exit 1; }
 
+    _FLAG_DIR=""
+    _FLAG_SID=""
     local TIME_STR="$1"; shift
     local PROMPT="${!#}"  # last argument
 
@@ -2011,6 +2013,8 @@ _schedule_at() {
 _schedule_every() {
     [ $# -lt 3 ] && { _err "Usage: ca every <schedule> <time> [flags] 'prompt'"; exit 1; }
 
+    _FLAG_DIR=""
+    _FLAG_SID=""
     local RPT_SCHEDULE="$1"; shift
     local RPT_TIMES="$1"; shift
     local PROMPT="${!#}"  # last argument
@@ -2026,6 +2030,9 @@ _schedule_every() {
         done
         _parse_at_flags "${flag_args[@]}"
     fi
+
+    # -s is not supported for repeat jobs
+    [ -n "${_FLAG_SID:-}" ] && { _err "$(_t "Error: -s is not supported for 'every' (repeat jobs always start a new session)" "Error: -s는 'every'에서 지원되지 않습니다 (반복 작업은 항상 새 세션을 시작합니다)")"; exit 1; }
 
     mkdir -p "$STORE"
     [ -d "$STORE" ] && chmod 700 "$STORE" 2>/dev/null || true
@@ -2227,17 +2234,33 @@ _resolve_job_ref() {
     local ref="$1"
     ref="${ref#\#}"
     if [[ "$ref" =~ ^[0-9]+$ ]]; then
-        local idx=0
+        # Build same sort key as list_jobs to ensure index consistency
+        local sort_lines=""
         for f in "$STORE"/*.meta; do
             [ -f "$f" ] || continue
             local fname; fname=$(basename "$f" .meta)
             [ -f "$STORE/${fname}.sh" ] || continue
-            idx=$((idx + 1))
-            if [ "$idx" -eq "$ref" ]; then
-                echo "$fname"
-                return 0
+            local m_type m_subtype m_schedule m_times m_target_fmt
+            m_type=$(_read_meta "$f" META_TYPE)
+            m_subtype=$(_read_meta "$f" META_SUBTYPE)
+            m_schedule=$(_read_meta "$f" META_SCHEDULE)
+            m_times=$(_read_meta "$f" META_TIMES)
+            m_target_fmt=$(_read_meta "$f" META_TARGET_FMT)
+            local type_display="${m_subtype:-${m_type:-once}}"
+            local sched_display
+            if [ "${m_type:-once}" = "repeat" ]; then
+                sched_display="${m_schedule} ${m_times}"
+            else
+                sched_display="${m_target_fmt}"
             fi
+            sort_lines+="${type_display} | ${sched_display} | ${fname}"$'\n'
         done
+        local target_fname
+        target_fname=$(echo "$sort_lines" | sort | sed -n "${ref}p" | awk -F ' \\| ' '{print $3}' | tr -d '[:space:]')
+        if [ -n "$target_fname" ]; then
+            echo "$target_fname"
+            return 0
+        fi
         _err "$(_t "Error: no job at index" "Error: 해당 인덱스에 작업 없음") #$ref"
         return 1
     fi
