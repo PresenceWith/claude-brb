@@ -626,6 +626,79 @@ _setup_pmset_sudo() {
     fi
 }
 
+# ========== Settings.json hook manipulation utilities ==========
+
+# Add a StopFailure hook entry for auto-resume to ~/.claude/settings.json (idempotent)
+_settings_json_add_hook() {
+    local hook_cmd="$1"
+    local settings_path="${_SETTINGS_PATH:-$HOME/.claude/settings.json}"
+    local settings_dir
+    settings_dir=$(dirname "$settings_path")
+    mkdir -p "$settings_dir"
+
+    # Backup existing
+    [ -f "$settings_path" ] && cp "$settings_path" "${settings_path}.bak"
+
+    node -e "
+const fs = require('fs');
+const p = process.argv[1];
+const cmd = process.argv[2];
+let s = {};
+try { s = JSON.parse(fs.readFileSync(p, 'utf8')); } catch(e) {}
+if (!s.hooks) s.hooks = {};
+if (!s.hooks.StopFailure) s.hooks.StopFailure = [];
+const exists = s.hooks.StopFailure.some(e =>
+    e.hooks && e.hooks.some(h => h.command && h.command.includes('_hook-auto-resume'))
+);
+if (!exists) {
+    s.hooks.StopFailure.push({
+        matcher: 'rate_limit',
+        hooks: [{ type: 'command', command: cmd }]
+    });
+}
+const tmp = p + '.tmp.' + process.pid;
+fs.writeFileSync(tmp, JSON.stringify(s, null, 2));
+fs.renameSync(tmp, p);
+" "$settings_path" "$hook_cmd"
+}
+
+# Remove the auto-resume hook entry from ~/.claude/settings.json
+_settings_json_remove_hook() {
+    local settings_path="${_SETTINGS_PATH:-$HOME/.claude/settings.json}"
+    [ -f "$settings_path" ] || return 0
+
+    cp "$settings_path" "${settings_path}.bak"
+
+    node -e "
+const fs = require('fs');
+const p = process.argv[1];
+let s = {};
+try { s = JSON.parse(fs.readFileSync(p, 'utf8')); } catch(e) { process.exit(0); }
+if (s.hooks && s.hooks.StopFailure) {
+    s.hooks.StopFailure = s.hooks.StopFailure.filter(e =>
+        !(e.hooks && e.hooks.some(h => h.command && h.command.includes('_hook-auto-resume')))
+    );
+    if (s.hooks.StopFailure.length === 0) delete s.hooks.StopFailure;
+    if (Object.keys(s.hooks).length === 0) delete s.hooks;
+}
+const tmp = p + '.tmp.' + process.pid;
+fs.writeFileSync(tmp, JSON.stringify(s, null, 2));
+fs.renameSync(tmp, p);
+" "$settings_path"
+}
+
+# Check if the auto-resume hook is registered in ~/.claude/settings.json
+_settings_json_has_hook() {
+    local settings_path="${_SETTINGS_PATH:-$HOME/.claude/settings.json}"
+    [ -f "$settings_path" ] || return 1
+    node -e "
+const s = JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'));
+const has = s.hooks && s.hooks.StopFailure &&
+    s.hooks.StopFailure.some(e => e.hooks && e.hooks.some(h => h.command && h.command.includes('_hook-auto-resume')));
+process.exit(has ? 0 : 1);
+" "$settings_path" 2>/dev/null
+}
+
 # Try to schedule pmset wake (auto-setup → sudo -n → interactive fallback)
 _try_schedule_wake() {
     local wake_fmt="$1"
@@ -1512,6 +1585,8 @@ if [ "$_QUIET" = 'yes' ] && [ "$_HEADLESS" != 'yes' ]; then
 fi
 
 case "${1:-}" in
+    _test-settings-add)    _settings_json_add_hook "$2"; exit 0 ;;
+    _test-settings-remove) _settings_json_remove_hook; exit 0 ;;
     -h|--help)    show_help ;;
     -V|--version) echo "claude-at $VERSION"; exit 0 ;;
     -l|--list)    list_jobs; exit $? ;;
