@@ -1648,31 +1648,42 @@ _hook_auto_resume() {
         const details = process.argv[1];
         const bufferSecs = parseInt(process.argv[2]) || 300;
 
+        // Normalize '10pm' -> '10:00 PM', '8:30am' -> '8:30 AM' for Date parsing
+        function normalizeTime(s) {
+            const m = s.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)$/i);
+            if (!m) return s;
+            return m[1] + ':' + (m[2] || '00') + ' ' + m[3].toUpperCase();
+        }
+
         // Pattern 1: 'resets 10pm (America/New_York)'
         let m = details.match(/resets?\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm))\s*\(([^)]+)\)/i);
         if (m) {
-            const timeStr = m[1];
+            const timeStr = normalizeTime(m[1].trim());
             const tz = m[2];
             const now = new Date();
             const dateStr = now.toLocaleDateString('en-US', {timeZone: tz});
             const target = new Date(dateStr + ' ' + timeStr);
-            if (target <= now) target.setDate(target.getDate() + 1);
-            target.setSeconds(target.getSeconds() + bufferSecs);
-            const hh = String(target.getHours()).padStart(2,'0');
-            const mm = String(target.getMinutes()).padStart(2,'0');
-            console.log(hh + ':' + mm);
-            process.exit(0);
+            if (!isNaN(target)) {
+                if (target <= now) target.setDate(target.getDate() + 1);
+                target.setSeconds(target.getSeconds() + bufferSecs);
+                const hh = String(target.getHours()).padStart(2,'0');
+                const mm = String(target.getMinutes()).padStart(2,'0');
+                console.log(hh + ':' + mm);
+                process.exit(0);
+            }
         }
 
         // Pattern 2: 'resets Jan 29 at 8pm (America/New_York)'
         m = details.match(/resets?\s+(\w+\s+\d+)\s+at\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm))\s*\(([^)]+)\)/i);
         if (m) {
-            const target = new Date(m[1] + ' ' + m[2]);
-            target.setSeconds(target.getSeconds() + bufferSecs);
-            const hh = String(target.getHours()).padStart(2,'0');
-            const mm = String(target.getMinutes()).padStart(2,'0');
-            console.log(hh + ':' + mm);
-            process.exit(0);
+            const target = new Date(m[1] + ' ' + normalizeTime(m[2].trim()));
+            if (!isNaN(target)) {
+                target.setSeconds(target.getSeconds() + bufferSecs);
+                const hh = String(target.getHours()).padStart(2,'0');
+                const mm = String(target.getMinutes()).padStart(2,'0');
+                console.log(hh + ':' + mm);
+                process.exit(0);
+            }
         }
 
         // Fallback: no parseable time
@@ -1688,7 +1699,7 @@ _hook_auto_resume() {
         'You were interrupted by a rate limit. Review the conversation history and continue where you left off. Verify the current state before making changes. Do not repeat completed work.' \
         'Rate limit으로 작업이 중단되었습니다. 대화 기록을 검토하고 중단된 지점부터 이어서 진행하세요. 변경 전 현재 상태를 확인하고, 이미 완료된 작업은 반복하지 마세요.')}"
 
-    # Schedule resume (synchronous, check exit code)
+    # Schedule resume (requires Task 7: 'at' subcommand — until then, falls through to old CLI)
     local ca_output
     if ca_output=$(_CLAUDE_AT_SUBTYPE=auto-resume "$ca_bin" at "$schedule_time" -H -s "$session_id" "$resume_prompt" 2>&1); then
         local job_info
