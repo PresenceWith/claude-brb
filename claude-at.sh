@@ -1725,8 +1725,8 @@ _ar_notify() {
 _hook_auto_resume() {
     # Disable set -e — hook handles errors explicitly via ERR trap
     set +e
-    trap '_ar_notify "auto-resume hook error: $BASH_COMMAND (exit $?)" "error"
-          echo "[$(date)] ERR: $BASH_COMMAND (exit $?)" >> "$STORE/auto-resume.log"' ERR
+    trap '_ec=$?; _ar_notify "auto-resume hook error: $BASH_COMMAND (exit $_ec)" "error"
+          echo "[$(date)] ERR: $BASH_COMMAND (exit $_ec)" >> "$STORE/auto-resume.log"' ERR
 
     # Ensure store exists
     mkdir -p "$STORE"
@@ -2131,7 +2131,7 @@ _status_summary() {
     echo ""
     echo "$(_t "Scheduled jobs:" "예약된 작업:") ${count}$(_t " jobs" "개")"
     echo "$(_t "'ca list' for details, 'ca help' for usage" "'ca list'로 목록 확인, 'ca help'로 사용법 확인")"
-    exit 0
+    return 0
 }
 
 _full_setup() {
@@ -2247,6 +2247,8 @@ _resolve_job_ref() {
             m_times=$(_read_meta "$f" META_TIMES)
             m_target_fmt=$(_read_meta "$f" META_TARGET_FMT)
             local type_display="${m_subtype:-${m_type:-once}}"
+            local m_flags; m_flags=$(_read_meta "$f" META_FLAGS)
+            [ -n "$m_flags" ] && type_display="${type_display} [!]"
             local sched_display
             if [ "${m_type:-once}" = "repeat" ]; then
                 sched_display="${m_schedule} ${m_times}"
@@ -2329,8 +2331,8 @@ fi
 case "${1:-}" in
     # Internal
     _hook-auto-resume) _hook_auto_resume; exit $? ;;
-    _test-settings-add)    _settings_json_add_hook "$2"; exit 0 ;;
-    _test-settings-remove) _settings_json_remove_hook; exit 0 ;;
+    _test-settings-add)    [ -n "${CLAUDE_AT_STORE:-}" ] || { _err "test-only command"; exit 1; }; _settings_json_add_hook "$2"; exit 0 ;;
+    _test-settings-remove) [ -n "${CLAUDE_AT_STORE:-}" ] || { _err "test-only command"; exit 1; }; _settings_json_remove_hook; exit 0 ;;
 
     # Core features
     auto-resume) shift; _auto_resume_cmd "${1:-status}"; exit 0 ;;

@@ -10,6 +10,7 @@ SETTINGS="$TMPDIR/settings.json"
 # Source just the utility functions (will need to extract or source whole script)
 source_dir="$(cd "$(dirname "$0")" && pwd)"
 export _SETTINGS_PATH="$SETTINGS"
+export CLAUDE_AT_STORE="$TMPDIR"
 
 # Test add to nonexistent file
 "$source_dir/claude-at.sh" _test-settings-add "/usr/local/bin/claude-at _hook-auto-resume"
