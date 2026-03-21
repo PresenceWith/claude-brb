@@ -699,6 +699,46 @@ process.exit(has ? 0 : 1);
 " "$settings_path" 2>/dev/null
 }
 
+# auto-resume enable/disable/status command handler
+_auto_resume_cmd() {
+    local action="${1:-status}"
+    case "$action" in
+        enable)
+            local ca_path
+            ca_path=$(command -v claude-at 2>/dev/null || command -v ca 2>/dev/null)
+            [ -z "$ca_path" ] && { _err "Error: cannot resolve claude-at path"; return 1; }
+            ca_path=$(cd "$(dirname "$ca_path")" && pwd)/$(basename "$ca_path")
+
+            if _settings_json_has_hook 2>/dev/null; then
+                echo "$(_t "auto-resume is already enabled." "auto-resume가 이미 활성화되어 있습니다.")"
+                return 0
+            fi
+
+            _settings_json_add_hook "$ca_path _hook-auto-resume"
+            echo "$(_t "✅ auto-resume enabled (StopFailure hook registered)" "✅ auto-resume 활성화됨 (StopFailure hook 등록 완료)")"
+            ;;
+        disable)
+            _settings_json_remove_hook
+            echo "$(_t "✅ auto-resume disabled (hook removed)" "✅ auto-resume 비활성화됨 (hook 제거 완료)")"
+            ;;
+        status)
+            if _settings_json_has_hook 2>/dev/null; then
+                echo "$(_t "auto-resume: enabled" "auto-resume: 활성")"
+            else
+                echo "$(_t "auto-resume: disabled" "auto-resume: 비활성")"
+            fi
+            # Show recent history from log
+            if [ -f "$STORE/auto-resume.log" ]; then
+                echo "$(_t "  Recent:" "  최근:")"
+                grep 'SCHEDULED\|FAILED\|BLOCKED' "$STORE/auto-resume.log" | tail -5 | while IFS= read -r line; do
+                    echo "    $line"
+                done
+            fi
+            ;;
+        *) _err "Usage: ca auto-resume {enable|disable|status}"; return 1 ;;
+    esac
+}
+
 # Try to schedule pmset wake (auto-setup → sudo -n → interactive fallback)
 _try_schedule_wake() {
     local wake_fmt="$1"
@@ -1732,6 +1772,7 @@ fi
 
 case "${1:-}" in
     _hook-auto-resume) _hook_auto_resume; exit $? ;;
+    auto-resume) shift; _auto_resume_cmd "${1:-status}"; exit 0 ;;
     _test-settings-add)    _settings_json_add_hook "$2"; exit 0 ;;
     _test-settings-remove) _settings_json_remove_hook; exit 0 ;;
     -h|--help)    show_help ;;
