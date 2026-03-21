@@ -1566,6 +1566,141 @@ upgrade_all_jobs() {
     exit 0
 }
 
+# --- auto-resume hook ---
+
+_ar_notify() {
+    local msg="$1"
+    local level="${2:-info}"  # info, warning, error, success
+    osascript -e "display notification \"${msg//\"/\\\"}\" with title \"claude-at\"" 2>/dev/null || true
+}
+
+_hook_auto_resume() {
+    # Disable set -e — hook handles errors explicitly via ERR trap
+    set +e
+    trap '_ar_notify "auto-resume hook error: $BASH_COMMAND (exit $?)" "error"
+          echo "[$(date)] ERR: $BASH_COMMAND (exit $?)" >> "$STORE/auto-resume.log"' ERR
+
+    # Ensure store exists
+    mkdir -p "$STORE"
+
+    local input
+    input=$(cat)
+
+    # Log raw input
+    echo "[$(date)] INPUT: $input" >> "$STORE/auto-resume.log"
+
+    # Check dependencies
+    command -v node >/dev/null 2>&1 || { _ar_notify "auto-resume: node not found" "error"; return 1; }
+
+    # Parse JSON with node
+    local parsed
+    parsed=$(node -e "
+        try {
+            const d = JSON.parse(process.argv[1]);
+            console.log([
+                d.session_id || '',
+                d.error_details || '',
+                d.cwd || ''
+            ].join('\n'));
+        } catch(e) { process.exit(1); }
+    " "$input" 2>/dev/null) || { _ar_notify "auto-resume: JSON parse failed" "error"; return 1; }
+
+    local session_id error_details cwd_path
+    session_id=$(echo "$parsed" | sed -n '1p')
+    error_details=$(echo "$parsed" | sed -n '2p')
+    cwd_path=$(echo "$parsed" | sed -n '3p')
+
+    # Validate session_id
+    if [ -z "$session_id" ] || ! [[ "$session_id" =~ ^[a-zA-Z0-9_.-]+$ ]]; then
+        _ar_notify "auto-resume: invalid session_id" "error"
+        return 1
+    fi
+
+    # Recency guard
+    local guard_file="$STORE/.last-stop-${session_id}"
+    local now
+    now=$(date +%s)
+    if [ -f "$guard_file" ]; then
+        local recent_count=0
+        while IFS= read -r ts; do
+            [ -z "$ts" ] && continue
+            if [ $((now - ts)) -lt 1800 ]; then  # 30 minutes
+                recent_count=$((recent_count + 1))
+            fi
+        done < "$guard_file"
+        if [ "$recent_count" -ge 3 ]; then
+            local _guard_msg
+            _guard_msg="$(_t 'auto-resume: retry limit exceeded for session' 'auto-resume: 세션 재시도 한도 초과') ${session_id}"
+            _ar_notify "$_guard_msg" "warning"
+            echo "$_guard_msg" >&2
+            echo "[$(date)] BLOCKED: recency guard (${recent_count} in 30min)" >> "$STORE/auto-resume.log"
+            return 0
+        fi
+    fi
+    # Record this stop, keep only last 3
+    echo "$now" >> "$guard_file"
+    tail -3 "$guard_file" > "${guard_file}.tmp" && mv "${guard_file}.tmp" "$guard_file"
+
+    # Parse reset time from error_details using node
+    local buffer_secs="${CLAUDE_AT_RESUME_BUFFER_SECS:-300}"
+    local schedule_time
+    schedule_time=$(node -e "
+        const details = process.argv[1];
+        const bufferSecs = parseInt(process.argv[2]) || 300;
+
+        // Pattern 1: 'resets 10pm (America/New_York)'
+        let m = details.match(/resets?\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm))\s*\(([^)]+)\)/i);
+        if (m) {
+            const timeStr = m[1];
+            const tz = m[2];
+            const now = new Date();
+            const dateStr = now.toLocaleDateString('en-US', {timeZone: tz});
+            const target = new Date(dateStr + ' ' + timeStr);
+            if (target <= now) target.setDate(target.getDate() + 1);
+            target.setSeconds(target.getSeconds() + bufferSecs);
+            const hh = String(target.getHours()).padStart(2,'0');
+            const mm = String(target.getMinutes()).padStart(2,'0');
+            console.log(hh + ':' + mm);
+            process.exit(0);
+        }
+
+        // Pattern 2: 'resets Jan 29 at 8pm (America/New_York)'
+        m = details.match(/resets?\s+(\w+\s+\d+)\s+at\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm))\s*\(([^)]+)\)/i);
+        if (m) {
+            const target = new Date(m[1] + ' ' + m[2]);
+            target.setSeconds(target.getSeconds() + bufferSecs);
+            const hh = String(target.getHours()).padStart(2,'0');
+            const mm = String(target.getMinutes()).padStart(2,'0');
+            console.log(hh + ':' + mm);
+            process.exit(0);
+        }
+
+        // Fallback: no parseable time
+        process.exit(1);
+    " "$error_details" "$buffer_secs" 2>/dev/null) || schedule_time="+5h"
+
+    # Resolve ca path
+    local ca_bin
+    ca_bin=$(command -v claude-at 2>/dev/null || command -v ca 2>/dev/null || echo "$0")
+
+    # Build resume prompt
+    local resume_prompt="${CLAUDE_AT_RESUME_PROMPT:-$(_t \
+        'You were interrupted by a rate limit. Review the conversation history and continue where you left off. Verify the current state before making changes. Do not repeat completed work.' \
+        'Rate limit으로 작업이 중단되었습니다. 대화 기록을 검토하고 중단된 지점부터 이어서 진행하세요. 변경 전 현재 상태를 확인하고, 이미 완료된 작업은 반복하지 마세요.')}"
+
+    # Schedule resume (synchronous, check exit code)
+    local ca_output
+    if ca_output=$(_CLAUDE_AT_SUBTYPE=auto-resume "$ca_bin" at "$schedule_time" -H -s "$session_id" "$resume_prompt" 2>&1); then
+        local job_info
+        job_info=$(echo "$ca_output" | grep -o 'Job ID: [^ ]*' | head -1 || echo "")
+        _ar_notify "$(_t "auto-resume: scheduled at ${schedule_time}" "auto-resume: ${schedule_time}에 재개 예약됨") | ca cancel ${job_info##*: }" "success"
+        echo "[$(date)] SCHEDULED: ${schedule_time} session=${session_id} ${job_info}" >> "$STORE/auto-resume.log"
+    else
+        _ar_notify "$(_t 'auto-resume: scheduling failed' 'auto-resume: 예약 실패')" "error"
+        echo "[$(date)] FAILED: ca exit=$? output=$ca_output" >> "$STORE/auto-resume.log"
+    fi
+}
+
 # --- Pre-process headless/quiet flags ---
 _HEADLESS=''
 _QUIET=''
@@ -1585,6 +1720,7 @@ if [ "$_QUIET" = 'yes' ] && [ "$_HEADLESS" != 'yes' ]; then
 fi
 
 case "${1:-}" in
+    _hook-auto-resume) _hook_auto_resume; exit $? ;;
     _test-settings-add)    _settings_json_add_hook "$2"; exit 0 ;;
     _test-settings-remove) _settings_json_remove_hook; exit 0 ;;
     -h|--help)    show_help ;;
