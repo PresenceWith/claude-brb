@@ -15,21 +15,18 @@ install-user:
 
 uninstall:
 	@if ls $(HOME)/Library/LaunchAgents/com.claude-at.*.plist 1>/dev/null 2>&1; then \
-		echo "Warning: active claude-at jobs detected. Run 'ca -c all' first, then cancel recurring jobs individually."; \
+		echo "Warning: active claude-at jobs detected. Run 'ca teardown' or 'ca cancel all' first."; \
 	fi
 	rm -f $(BINDIR)/claude-at $(BINDIR)/ca
 
 uninstall-user:
 	@if ls $(HOME)/Library/LaunchAgents/com.claude-at.*.plist 1>/dev/null 2>&1; then \
-		echo "Warning: active claude-at jobs detected. Run 'ca -c all' first, then cancel recurring jobs individually."; \
+		echo "Warning: active claude-at jobs detected. Run 'ca teardown' or 'ca cancel all' first."; \
 	fi
 	rm -f $(HOME)/.local/bin/claude-at $(HOME)/.local/bin/ca
 
 test:
-	@echo "Running smoke tests..."
-	@bash claude-at.sh --version | grep -q "claude-at" && echo "  PASS: --version" || echo "  FAIL: --version"
-	@bash claude-at.sh --help >/dev/null 2>&1 && echo "  PASS: --help" || echo "  FAIL: --help"
-	@echo "Done."
+	bash test-v2.sh
 
 release:
 	@[ -n "$(V)" ] || { echo "Usage: make release V=x.y.z"; exit 1; }

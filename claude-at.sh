@@ -3,7 +3,7 @@
 set -euo pipefail
 umask 077
 
-VERSION="0.1.6"
+VERSION="0.2.0"
 
 # --- i18n: detect locale once, cache result ---
 _lang_code="${CLAUDE_AT_LANG:-${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}}"
@@ -13,7 +13,6 @@ _err() { echo "$@" >&2; }
 
 # --- headless mode messages ---
 _MSG_QUIET_REQUIRES_HEADLESS() { _t "-q/--quiet requires -H/--headless" "-q/--quiet는 -H/--headless와 함께 사용해야 합니다"; }
-_MSG_HEADLESS_NO_RESUME() { _t "Headless mode does not support session resume" "헤드리스 모드는 세션 이어하기를 지원하지 않습니다"; }
 _MSG_HEADLESS_PERM_WARN() {
     if [ "$_LANG_KO" -eq 1 ]; then
         cat <<'MSG'
@@ -60,157 +59,157 @@ esac
 show_help() {
     if [ "$_LANG_KO" -eq 1 ]; then
         cat <<'HELP'
-claude-at, ca — 지정 시간에 claude 세션을 예약 (launchd 기반)
+claude-at, ca — Claude Code 세션 연속성 관리 도구
 
 Usage:
+  # 핵심 기능
+  ca auto-resume enable           자동 재개 활성화
+  ca auto-resume disable          비활성화
+  ca auto-resume status           상태 + 최근 이력
+
+  ca keep-alive enable [times]    5시간 리셋 활성화
+  ca keep-alive disable           비활성화
+  ca keep-alive status            상태
+
   # 일회성 예약
-  ca <time> 'prompt'                      # 현재 디렉터리에서 새 세션
-  ca <time> <directory> 'prompt'          # 지정 디렉터리에서 새 세션
-  ca <time> <session-id> 'prompt'         # 기존 세션 재개
+  ca at <time> "prompt"                    현재 디렉터리에서 새 세션
+  ca at <time> -d <dir> "prompt"           지정 디렉터리
+  ca at <time> -s <session-id> "prompt"    세션 재개
+  ca at <time> -H "prompt"                 헤드리스 모드
+  ca at <time> -H -q "prompt"              헤드리스 (출력 폐기)
 
   # 반복 예약
-  ca -r <schedule> <time> 'prompt'              # 현재 디렉터리에서 반복
-  ca -r <schedule> <time> <directory> 'prompt'  # 지정 디렉터리에서 반복
+  ca every <schedule> <time> "prompt"
+  ca every <schedule> <time> -d <dir> "prompt"
+  ca every <schedule> <time> -H -q "prompt"
 
   # 관리
-  ca --list                              # 예약 목록
-  ca --cancel <job-id>                   # 예약 취소
-  ca --cancel all                        # 일회성 예약 모두 취소
-  ca --modify <job-id>                   # 프롬프트 수정 (에디터)
-  ca --modify <job-id> 'new-prompt'      # 프롬프트 직접 변경
-  ca --time <job-id> <time>              # 실행 시각 변경
-  ca --upgrade                           # 기존 작업 업그레이드
+  ca list                         예약 목록 (인덱스 번호 포함)
+  ca show <id|#index>             작업 상세
+  ca cancel <id|#index|all>       취소
+  ca edit <id|#index> ["prompt"]  프롬프트 수정
+  ca reschedule <id|#index> <time>  시간 변경
 
-Arguments:
-  time            실행 시각 ( HH:MM | +Nm | +Nh | +Nd )
-                  반복 시 쉼표로 여러 시각: 07:00,12:00,17:00
-  schedule        반복 주기: daily, weekday, weekend, 또는 요일 (mon,wed,fri)
-  session-id      claude 세션 ID (재개 시, 일회성만)
-  directory       새 세션을 실행할 디렉터리 (절대경로, /로 시작)
-  prompt          작업 지시
+  # 설정
+  ca setup                        초기 설정 (인터랙티브)
+  ca teardown                     전체 정리 (언인스톨 전)
+  ca upgrade                      기존 작업 업그레이드
+  ca                              상태 요약
+
+Time:
+  HH:MM       절대 시간 (다음 도래)
+  +Nm         N분 후
+  +Nh         N시간 후
+  +Nd         N일 후
+  HH:MM,HH:MM  복수 시간 (반복만)
 
 Schedule:
-  daily           매일
+  day / daily     매일
   weekday         평일 (월-금)
   weekend         주말 (토-일)
-  mon,tue,...     특정 요일 (sun,mon,tue,wed,thu,fri,sat)
+  mon,wed,fri     특정 요일
 
-Options:
-  -r, --repeat    반복 예약
-  -H, --headless  헤드리스 모드 (터미널 없이 claude -p 실행)
-  -q, --quiet     출력 폐기 (-H와 함께 사용)
-  -l, --list      예약 목록
-  -c, --cancel    예약 취소
-  -m, --modify    프롬프트 수정
-  -t, --time      실행 시각 변경
-  -u, --upgrade   기존 작업 업그레이드
-  -S, --setup     pmset 잠자기 해제 권한 설정
-  -V, --version   버전 표시
-  -h, --help      도움말
+Flags:
+  -d <dir>      작업 디렉터리 (절대 경로)
+  -s <sid>      세션 재개 (일회성만)
+  -H            헤드리스 모드 (터미널 없이 실행)
+  -q            출력 폐기 (-H와 함께)
 
 Environment:
-  CLAUDE_AT_TERMINAL   터미널 앱 (Terminal, iTerm2)     [기본: Terminal]
-  CLAUDE_AT_FLAGS      claude CLI 추가 플래그           [기본: 없음]
-  CLAUDE_AT_STORE      작업 저장 디렉터리               [기본: ~/.claude-at]
-  CLAUDE_AT_LANG       표시 언어 (en, ko)               [기본: 자동 감지]
-
-Note:
-  잠자기 해제(pmset wake)는 덮개가 열려있거나 외부 모니터가 연결된
-  상태에서만 정상 작동합니다. 덮개가 닫힌 채 외부 모니터 없이는
-  하드웨어는 깨어나지만 터미널 창을 열 수 없어 실행이 실패합니다.
-  헤드리스 모드(-H)에서는 터미널이 열리지 않으므로 덮개가 닫힌
-  상태에서도 실행 가능합니다.
+  CLAUDE_AT_TERMINAL           터미널 앱 (Terminal, iTerm2)   [기본: Terminal]
+  CLAUDE_AT_FLAGS              claude CLI 추가 플래그         [기본: 없음]
+  CLAUDE_AT_STORE              작업 저장 디렉터리             [기본: ~/.claude-at]
+  CLAUDE_AT_LANG               표시 언어 (en, ko)             [기본: 자동 감지]
+  CLAUDE_AT_RESUME_PROMPT      자동 재개 프롬프트 커스터마이즈
+  CLAUDE_AT_RESUME_BUFFER_SECS 리셋 시간 버퍼 (초)           [기본: 300]
 
 Examples:
-  ca 03:00 "Write unit tests"                           # 현재 폴더에서 새 세션
-  ca +30m /Users/dev/myapp "Refactor code"              # 지정 폴더에서 새 세션
-  ca +3h abc-123-def "Continue analysis"                # 세션 재개
-  ca +1d "Run weekly cleanup"                           # 1일 후 실행
-  ca -r daily 07:00 "Check status"                      # 매일 7시
-  ca -r weekday 09:00 "Standup summary"                 # 평일 9시
-  ca -r mon,wed,fri 14:00 /Users/dev/app "Code review"  # 월수금 14시
-  ca -H +30m "Review PR"                               # 헤드리스 일회성
-  ca -H -r daily 09:00 "Check status"                  # 헤드리스 반복
-  ca -H -q +1h "Background task"                       # 헤드리스 (출력 폐기)
-
-Requires: bash 3.2+, zsh (interactive prompt editing)
+  ca at 03:00 "Write unit tests"                   새 세션 예약
+  ca at +30m -d /Users/dev/app "Refactor"          지정 디렉터리
+  ca at +3h -s abc-123-def "Continue"              세션 재개
+  ca every day 07:00 "Check status"                매일 7시
+  ca every weekday 09:00 "Standup summary"         평일 9시
+  ca at +30m -H "Review PR"                        헤드리스
+  ca at +1h -H -q "Background task"                헤드리스 (출력 폐기)
+  ca auto-resume enable                            자동 재개 활성화
+  ca keep-alive enable                             5시간 리셋 활성화
 HELP
     else
         cat <<'HELP'
-claude-at, ca — schedule Claude Code sessions via macOS launchd
+claude-at, ca — Claude Code session continuity manager
 
 Usage:
-  # One-time
-  ca <time> 'prompt'                      # new session in current dir
-  ca <time> <directory> 'prompt'          # new session in specified dir
-  ca <time> <session-id> 'prompt'         # resume existing session
+  # Core features
+  ca auto-resume enable           enable auto-resume
+  ca auto-resume disable          disable
+  ca auto-resume status           status + recent history
 
-  # Recurring
-  ca -r <schedule> <time> 'prompt'              # repeat in current dir
-  ca -r <schedule> <time> <directory> 'prompt'  # repeat in specified dir
+  ca keep-alive enable [times]    enable 5h timer reset
+  ca keep-alive disable           disable
+  ca keep-alive status            status
+
+  # One-time scheduling
+  ca at <time> "prompt"                    new session in current dir
+  ca at <time> -d <dir> "prompt"           in specified dir
+  ca at <time> -s <session-id> "prompt"    resume session
+  ca at <time> -H "prompt"                 headless mode
+  ca at <time> -H -q "prompt"              headless, discard output
+
+  # Recurring scheduling
+  ca every <schedule> <time> "prompt"
+  ca every <schedule> <time> -d <dir> "prompt"
+  ca every <schedule> <time> -H -q "prompt"
 
   # Management
-  ca --list                              # list all jobs
-  ca --cancel <job-id>                   # cancel a job
-  ca --cancel all                        # cancel all one-time jobs
-  ca --modify <job-id>                   # edit prompt (editor)
-  ca --modify <job-id> 'new-prompt'      # change prompt directly
-  ca --time <job-id> <time>              # reschedule
-  ca --upgrade                           # upgrade existing jobs
+  ca list                         list jobs (with index numbers)
+  ca show <id|#index>             job details
+  ca cancel <id|#index|all>       cancel
+  ca edit <id|#index> ["prompt"]  modify prompt
+  ca reschedule <id|#index> <time>  change time
 
-Arguments:
-  time            execution time ( HH:MM | +Nm | +Nh | +Nd )
-                  multiple times for recurring: 07:00,12:00,17:00
-  schedule        recurrence: daily, weekday, weekend, or days (mon,wed,fri)
-  session-id      Claude session ID (resume only, one-time only)
-  directory       working directory (absolute path, starts with /)
-  prompt          task instruction
+  # Settings
+  ca setup                        initial setup (interactive)
+  ca teardown                     full cleanup (before uninstall)
+  ca upgrade                      upgrade existing jobs
+  ca                              status summary
+
+Time:
+  HH:MM       absolute time (next occurrence)
+  +Nm         in N minutes
+  +Nh         in N hours
+  +Nd         in N days
+  HH:MM,HH:MM  multiple times (recurring only)
 
 Schedule:
-  daily           every day
+  day / daily     every day
   weekday         Mon-Fri
   weekend         Sat-Sun
-  mon,tue,...     specific days (sun,mon,tue,wed,thu,fri,sat)
+  mon,wed,fri     specific days
 
-Options:
-  -r, --repeat    recurring schedule
-  -H, --headless  headless mode (run claude -p without terminal)
-  -q, --quiet     discard output (use with -H)
-  -l, --list      list jobs
-  -c, --cancel    cancel job
-  -m, --modify    modify prompt
-  -t, --time      change schedule time
-  -u, --upgrade   upgrade existing jobs
-  -S, --setup     configure pmset wake permissions
-  -V, --version   show version
-  -h, --help      show this help
+Flags:
+  -d <dir>      working directory (absolute path)
+  -s <sid>      resume session (one-time only)
+  -H            headless mode (no terminal)
+  -q            discard output (use with -H)
 
 Environment:
-  CLAUDE_AT_TERMINAL   terminal app (Terminal, iTerm2)   [default: Terminal]
-  CLAUDE_AT_FLAGS      extra flags for claude CLI        [default: none]
-  CLAUDE_AT_STORE      job storage directory             [default: ~/.claude-at]
-  CLAUDE_AT_LANG       display language (en, ko)         [default: auto-detect]
-
-Note:
-  Wake-from-sleep (pmset wake) requires the lid to be open or an external
-  monitor connected. With the lid closed and no display, the hardware wakes
-  but the terminal window cannot open, so the job will fail.
-  Headless mode (-H) does not open a terminal, so it can run even
-  with the lid closed.
+  CLAUDE_AT_TERMINAL           terminal app (Terminal, iTerm2)   [default: Terminal]
+  CLAUDE_AT_FLAGS              extra flags for claude CLI        [default: none]
+  CLAUDE_AT_STORE              job storage directory             [default: ~/.claude-at]
+  CLAUDE_AT_LANG               display language (en, ko)         [default: auto-detect]
+  CLAUDE_AT_RESUME_PROMPT      customize auto-resume prompt
+  CLAUDE_AT_RESUME_BUFFER_SECS buffer after reset time (secs)   [default: 300]
 
 Examples:
-  ca 03:00 "Write unit tests"                           # new session at 3am
-  ca +30m /Users/dev/myapp "Refactor code"              # in 30 minutes
-  ca +3h abc-123-def "Continue analysis"                # resume session
-  ca +1d "Run weekly cleanup"                           # in 1 day
-  ca -r daily 07:00 "Check status"                      # daily at 7am
-  ca -r weekday 09:00 "Standup summary"                 # weekdays at 9am
-  ca -r mon,wed,fri 14:00 /Users/dev/app "Code review"  # MWF at 2pm
-  ca -H +30m "Review PR"                               # headless one-time
-  ca -H -r daily 09:00 "Check status"                  # headless recurring
-  ca -H -q +1h "Background task"                       # headless, discard output
-
-Requires: bash 3.2+, zsh (interactive prompt editing)
+  ca at 03:00 "Write unit tests"                   schedule new session
+  ca at +30m -d /Users/dev/app "Refactor"          in specified dir
+  ca at +3h -s abc-123-def "Continue"              resume session
+  ca every day 07:00 "Check status"                daily at 7am
+  ca every weekday 09:00 "Standup summary"         weekdays at 9am
+  ca at +30m -H "Review PR"                        headless one-time
+  ca at +1h -H -q "Background task"                headless, discard output
+  ca auto-resume enable                            enable auto-resume
+  ca keep-alive enable                             enable 5h timer reset
 HELP
     fi
     exit 0
@@ -277,6 +276,7 @@ _load_meta() {
     META_WEEKDAYS=$(_read_meta "$meta_file" META_WEEKDAYS)
     META_HEADLESS=$(_read_meta "$meta_file" META_HEADLESS)
     META_QUIET=$(_read_meta "$meta_file" META_QUIET)
+    META_SUBTYPE=$(_read_meta "$meta_file" META_SUBTYPE)
 }
 
 # --- day name → launchd Weekday number ---
@@ -593,7 +593,7 @@ _setup_pmset_sudo() {
         "이 설정 없이는 Mac이 잠자기 상태일 때 예약이 지연될 수 있습니다.")"
     _err ""
     _err "$(_t "Will create:" "생성할 파일:") ${sudoers_file}"
-    _err "  ${user} ALL=(root) NOPASSWD: /usr/bin/pmset"
+    _err "  ${user} ALL=(root) NOPASSWD: /usr/bin/pmset schedule wake *, /usr/bin/pmset schedule cancel wake *, /usr/bin/pmset -g sched"
     _err ""
     _err "$(_t \
         "Note: Lid must be open or an external monitor connected." \
@@ -614,7 +614,7 @@ _setup_pmset_sudo() {
             ;;
     esac
 
-    local rule="${user} ALL=(root) NOPASSWD: /usr/bin/pmset"
+    local rule="${user} ALL=(root) NOPASSWD: /usr/bin/pmset schedule wake *, /usr/bin/pmset schedule cancel wake *, /usr/bin/pmset -g sched"
     if printf '# claude-at: allow passwordless pmset for wake scheduling\n%s\n' "$rule" \
         | sudo tee "$sudoers_file" >/dev/null \
         && sudo chmod 0440 "$sudoers_file" \
@@ -625,6 +625,217 @@ _setup_pmset_sudo() {
         _err "$(_t "Error: failed to install sudoers rule" "Error: sudoers 규칙 설치 실패")"
         return 1
     fi
+}
+
+# ========== Settings.json hook manipulation utilities ==========
+
+# Add a StopFailure hook entry for auto-resume to ~/.claude/settings.json (idempotent)
+_settings_json_add_hook() {
+    local hook_cmd="$1"
+    local settings_path="${_SETTINGS_PATH:-$HOME/.claude/settings.json}"
+    local settings_dir
+    settings_dir=$(dirname "$settings_path")
+    mkdir -p "$settings_dir"
+
+    # Backup existing
+    [ -f "$settings_path" ] && cp "$settings_path" "${settings_path}.bak"
+
+    node -e "
+const fs = require('fs');
+const p = process.argv[1];
+const cmd = process.argv[2];
+let s = {};
+try { s = JSON.parse(fs.readFileSync(p, 'utf8')); } catch(e) {}
+if (!s.hooks) s.hooks = {};
+if (!s.hooks.StopFailure) s.hooks.StopFailure = [];
+const exists = s.hooks.StopFailure.some(e =>
+    e.hooks && e.hooks.some(h => h.command && h.command.includes('_hook-auto-resume'))
+);
+if (!exists) {
+    s.hooks.StopFailure.push({
+        matcher: 'rate_limit',
+        hooks: [{ type: 'command', command: cmd }]
+    });
+}
+const tmp = p + '.tmp.' + process.pid;
+fs.writeFileSync(tmp, JSON.stringify(s, null, 2));
+fs.renameSync(tmp, p);
+" "$settings_path" "$hook_cmd"
+}
+
+# Remove the auto-resume hook entry from ~/.claude/settings.json
+_settings_json_remove_hook() {
+    local settings_path="${_SETTINGS_PATH:-$HOME/.claude/settings.json}"
+    [ -f "$settings_path" ] || return 0
+
+    cp "$settings_path" "${settings_path}.bak"
+
+    node -e "
+const fs = require('fs');
+const p = process.argv[1];
+let s = {};
+try { s = JSON.parse(fs.readFileSync(p, 'utf8')); } catch(e) { process.exit(0); }
+if (s.hooks && s.hooks.StopFailure) {
+    s.hooks.StopFailure = s.hooks.StopFailure.filter(e =>
+        !(e.hooks && e.hooks.some(h => h.command && h.command.includes('_hook-auto-resume')))
+    );
+    if (s.hooks.StopFailure.length === 0) delete s.hooks.StopFailure;
+    if (Object.keys(s.hooks).length === 0) delete s.hooks;
+}
+const tmp = p + '.tmp.' + process.pid;
+fs.writeFileSync(tmp, JSON.stringify(s, null, 2));
+fs.renameSync(tmp, p);
+" "$settings_path"
+}
+
+# Check if the auto-resume hook is registered in ~/.claude/settings.json
+_settings_json_has_hook() {
+    local settings_path="${_SETTINGS_PATH:-$HOME/.claude/settings.json}"
+    [ -f "$settings_path" ] || return 1
+    node -e "
+const s = JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'));
+const has = s.hooks && s.hooks.StopFailure &&
+    s.hooks.StopFailure.some(e => e.hooks && e.hooks.some(h => h.command && h.command.includes('_hook-auto-resume')));
+process.exit(has ? 0 : 1);
+" "$settings_path" 2>/dev/null
+}
+
+# auto-resume enable/disable/status command handler
+_auto_resume_cmd() {
+    local action="${1:-status}"
+    case "$action" in
+        enable)
+            local ca_path
+            ca_path=$(command -v claude-at 2>/dev/null || command -v ca 2>/dev/null)
+            [ -z "$ca_path" ] && { _err "Error: cannot resolve claude-at path"; return 1; }
+            ca_path=$(cd "$(dirname "$ca_path")" && pwd)/$(basename "$ca_path")
+
+            if _settings_json_has_hook 2>/dev/null; then
+                echo "$(_t "auto-resume is already enabled." "auto-resume가 이미 활성화되어 있습니다.")"
+                return 0
+            fi
+
+            _settings_json_add_hook "$ca_path _hook-auto-resume"
+            echo "$(_t "✅ auto-resume enabled (StopFailure hook registered)" "✅ auto-resume 활성화됨 (StopFailure hook 등록 완료)")"
+            ;;
+        disable)
+            _settings_json_remove_hook
+            echo "$(_t "✅ auto-resume disabled (hook removed)" "✅ auto-resume 비활성화됨 (hook 제거 완료)")"
+            ;;
+        status)
+            if _settings_json_has_hook 2>/dev/null; then
+                echo "$(_t "auto-resume: enabled" "auto-resume: 활성")"
+            else
+                echo "$(_t "auto-resume: disabled" "auto-resume: 비활성")"
+            fi
+            # Show recent history from log
+            if [ -f "$STORE/auto-resume.log" ]; then
+                echo "$(_t "  Recent:" "  최근:")"
+                grep 'SCHEDULED\|FAILED\|BLOCKED' "$STORE/auto-resume.log" | tail -5 | while IFS= read -r line; do
+                    echo "    $line"
+                done
+            fi
+            ;;
+        *) _err "Usage: ca auto-resume {enable|disable|status}"; return 1 ;;
+    esac
+}
+
+_keep_alive_cmd() {
+    local action="${1:-status}"
+    case "$action" in
+        enable)
+            local times="${2:-00:01,05:02,10:03,15:04,20:05}"
+
+            # Check if already active
+            if [ -f "$STORE/rpt.keep-alive.meta" ] && [ -f "$STORE/rpt.keep-alive.sh" ]; then
+                echo "$(_t "keep-alive is already enabled." "keep-alive가 이미 활성화되어 있습니다.")"
+                return 0
+            fi
+
+            # Check pmset setup
+            if ! _can_pmset_sudo; then
+                echo "$(_t "wake-from-sleep requires pmset permissions." "wake-from-sleep에 pmset 권한이 필요합니다.")"
+                if [ -t 0 ]; then
+                    printf "$(_t "Set up now? [Y/n] " "지금 설정할까요? [Y/n] ")"
+                    local confirm; read -r confirm
+                    case "${confirm:-Y}" in
+                        n|N|no|NO) echo "$(_t "⚠ keep-alive will not work while Mac is asleep." "⚠ Mac이 잠든 상태에서는 keep-alive가 실행되지 않습니다.")" ;;
+                        *) _setup_pmset_sudo ;;
+                    esac
+                fi
+            fi
+
+            # Create keep-alive job using internal scheduling
+            local JOB_ID="rpt.keep-alive"
+            local RPT_DIR="/tmp"
+            local RPT_PROMPT="Reply with OK"
+            local RPT_WEEKDAYS="0,1,2,3,4,5,6"  # every day
+
+            mkdir -p "$STORE"
+
+            printf '%s' "$RPT_PROMPT" | _atomic_write "$STORE/${JOB_ID}.prompt"
+            {
+                printf "META_TYPE='repeat'\n"
+                printf "META_MODE='new'\n"
+                printf "META_DIR='%s'\n" "$RPT_DIR"
+                printf "META_SID=''\n"
+                printf "META_FLAGS=''\n"
+                printf "META_SCHEDULE='day'\n"
+                printf "META_TIMES='%s'\n" "$times"
+                printf "META_WEEKDAYS='%s'\n" "$RPT_WEEKDAYS"
+                printf "META_HEADLESS='yes'\n"
+                printf "META_QUIET='yes'\n"
+                printf "META_SUBTYPE='keep-alive'\n"
+            } | _atomic_write "$STORE/${JOB_ID}.meta"
+
+            _ensure_wake_helper
+            _generate_exec "$JOB_ID"
+            _generate_runner "$JOB_ID"
+
+            local label="${LABEL_PREFIX}.${JOB_ID}"
+            local runner="$STORE/${JOB_ID}.sh"
+            mkdir -p "$PLIST_DIR"
+            _write_plist_repeat "$label" "$runner" "$JOB_ID" "$RPT_WEEKDAYS" "$times"
+
+            if ! launchctl bootstrap "gui/$(id -u)" "${PLIST_DIR}/${label}.plist" 2>/dev/null; then
+                # May already be loaded — try bootout first then reload
+                launchctl bootout "gui/$(id -u)/${label}" 2>/dev/null || true
+                launchctl bootstrap "gui/$(id -u)" "${PLIST_DIR}/${label}.plist" || {
+                    _err "Error: failed to register keep-alive job"
+                    return 1
+                }
+            fi
+
+            _schedule_next_repeat_wake "$JOB_ID" "$RPT_WEEKDAYS" "$times"
+            echo "$(_t "✅ keep-alive enabled" "✅ keep-alive 활성화됨") ($times)"
+            ;;
+        disable)
+            local JOB_ID="rpt.keep-alive"
+            if [ -f "$STORE/${JOB_ID}.sh" ]; then
+                cancel_job "$JOB_ID"
+                echo "$(_t "✅ keep-alive disabled" "✅ keep-alive 비활성화됨")"
+            else
+                echo "$(_t "keep-alive is not active." "keep-alive가 활성화되어 있지 않습니다.")"
+            fi
+            ;;
+        status)
+            if [ -f "$STORE/rpt.keep-alive.meta" ] && [ -f "$STORE/rpt.keep-alive.sh" ]; then
+                local times
+                times=$(_read_meta "$STORE/rpt.keep-alive.meta" META_TIMES)
+                echo "$(_t "keep-alive: enabled" "keep-alive: 활성") ($times)"
+
+                # Last execution from runlog
+                if [ -f "$STORE/rpt.keep-alive.runlog" ]; then
+                    local last_line
+                    last_line=$(tail -1 "$STORE/rpt.keep-alive.runlog")
+                    echo "  $(_t "Last run:" "마지막 실행:") $last_line"
+                fi
+            else
+                echo "$(_t "keep-alive: disabled" "keep-alive: 비활성")"
+            fi
+            ;;
+        *) _err "Usage: ca keep-alive {enable|disable|status} [times]"; return 1 ;;
+    esac
 }
 
 # Try to schedule pmset wake (auto-setup → sudo -n → interactive fallback)
@@ -819,10 +1030,18 @@ _generate_exec() {
                 $has_prompt && printf 'PROMPT=$(<"%s")\n' "${prompt_file}"
             fi
 
-            if $has_prompt; then
-                printf 'caffeinate -i claude -p%s "$PROMPT"\n' "$flags_part"
+            if [ "${META_MODE:-new}" = "resume" ] && [ -n "${META_SID}" ]; then
+                if $has_prompt; then
+                    printf 'caffeinate -i claude -p%s --resume '\''%s'\'' "$PROMPT"\n' "$flags_part" "${META_SID}"
+                else
+                    printf 'caffeinate -i claude -p%s --resume '\''%s'\''\n' "$flags_part" "${META_SID}"
+                fi
             else
-                printf 'caffeinate -i claude -p%s\n' "$flags_part"
+                if $has_prompt; then
+                    printf 'caffeinate -i claude -p%s "$PROMPT"\n' "$flags_part"
+                else
+                    printf 'caffeinate -i claude -p%s\n' "$flags_part"
+                fi
             fi
         else
             # --- standard interactive exec ---
@@ -1076,8 +1295,8 @@ _update_meta_field() {
 list_jobs() {
     mkdir -p "$STORE"
     local found=false
-    printf "%-10s | %-22s | %-34s | %-28s | %s\n" "TYPE" "SCHEDULE" "JOB ID" "TARGET" "PROMPT"
-    printf '%0.s-' {1..120}; echo
+    printf " #  %-10s | %-22s | %-34s | %-28s | %s\n" "TYPE" "SCHEDULE" "JOB ID" "TARGET" "PROMPT"
+    printf '%0.s-' {1..124}; echo
     local lines=""
     for f in "$STORE"/*.meta; do
         [ -f "$f" ] || continue
@@ -1087,7 +1306,7 @@ list_jobs() {
         [ -f "$STORE/${fname}.sh" ] || continue
         found=true
 
-        local m_type m_schedule m_times m_target_fmt m_dir m_sid m_flags
+        local m_type m_schedule m_times m_target_fmt m_dir m_sid m_flags m_subtype
         m_type=$(_read_meta "$f" META_TYPE)
         m_schedule=$(_read_meta "$f" META_SCHEDULE)
         m_times=$(_read_meta "$f" META_TIMES)
@@ -1095,9 +1314,15 @@ list_jobs() {
         m_dir=$(_read_meta "$f" META_DIR)
         m_sid=$(_read_meta "$f" META_SID)
         m_flags=$(_read_meta "$f" META_FLAGS)
+        m_subtype=$(_read_meta "$f" META_SUBTYPE)
 
         local type_display sched_display target_display prompt_display
-        type_display="${m_type:-once}"
+        # Show subtype if present, otherwise type
+        if [ -n "$m_subtype" ]; then
+            type_display="$m_subtype"
+        else
+            type_display="${m_type:-once}"
+        fi
         [ -n "$m_flags" ] && type_display="${type_display} [!]"
 
         if [ "${m_type:-once}" = "repeat" ]; then
@@ -1130,18 +1355,21 @@ list_jobs() {
         lines+="${type_display} | ${sched_display} | ${fname} | ${target_display} | ${prompt_display}..."$'\n'
     done
     if $found; then
+        local idx=0
         echo "$lines" | sort | while IFS= read -r line; do
             [ -z "$line" ] && continue
+            idx=$((idx + 1))
+            printf "%2d  " "$idx"
             echo "$line" | awk -F ' \\| ' '{printf "%-10s | %-22s | %-34s | %-28s | %s\n", $1, $2, $3, $4, $5}'
         done
     else
         echo "$(_t "(no jobs)" "(예약 없음)")"
     fi
     echo ""
-    echo "$(_t "Modify prompt:" "프롬프트 수정:") ca -m <JOB ID>"
-    echo "$(_t "Change time: " "시간 변경:   ") ca -t <JOB ID> <TIME>"
-    echo "$(_t "Cancel job:  " "예약 취소:   ") ca -c <JOB ID> | ca -c all"
-    exit 0
+    echo "$(_t "Modify prompt:" "프롬프트 수정:") ca edit <JOB ID>"
+    echo "$(_t "Change time: " "시간 변경:   ") ca reschedule <JOB ID> <TIME>"
+    echo "$(_t "Cancel job:  " "예약 취소:   ") ca cancel <JOB ID> | ca cancel all"
+    return 0
 }
 
 # --- cancel all (one-time only, keeps repeat jobs) ---
@@ -1170,8 +1398,8 @@ cancel_all_jobs() {
 
     if [ "$total_once" -eq 0 ]; then
         echo "$(_t "(no one-time jobs)" "(일회성 예약 없음)")"
-        [ "$total_repeat" -gt 0 ] && echo "$(_t "${total_repeat} repeat job(s) kept (cancel individually: ca -c <JOB ID>)" "반복 예약 ${total_repeat}개는 유지됨 (개별 취소: ca -c <JOB ID>)")"
-        exit 0
+        [ "$total_repeat" -gt 0 ] && echo "$(_t "${total_repeat} repeat job(s) kept (cancel individually: ca cancel <JOB ID>)" "반복 예약 ${total_repeat}개는 유지됨 (개별 취소: ca cancel <JOB ID>)")"
+        return 0
     fi
 
     # Interactive confirmation
@@ -1181,7 +1409,7 @@ cancel_all_jobs() {
         read -r confirm
         case "$confirm" in
             y|Y|yes|YES) ;;
-            *) echo "$(_t "Cancelled." "취소됨.")"; exit 0 ;;
+            *) echo "$(_t "Cancelled." "취소됨.")"; return 0 ;;
         esac
     fi
 
@@ -1225,22 +1453,22 @@ cancel_all_jobs() {
     # Clean up helper script only if no repeat jobs remain
     [ "$total_repeat" -eq 0 ] && rm -f "$STORE/_next_wake.sh"
     echo "$(_t "${count} job(s) cancelled" "총 ${count}개 예약 취소됨")"
-    [ "$total_repeat" -gt 0 ] && echo "$(_t "${total_repeat} repeat job(s) kept (cancel individually: ca -c <JOB ID>)" "반복 예약 ${total_repeat}개는 유지됨 (개별 취소: ca -c <JOB ID>)")"
+    [ "$total_repeat" -gt 0 ] && echo "$(_t "${total_repeat} repeat job(s) kept (cancel individually: ca cancel <JOB ID>)" "반복 예약 ${total_repeat}개는 유지됨 (개별 취소: ca cancel <JOB ID>)")"
     $wake_fail && _err "$(_t "Warning: some pmset wake cancellations require admin privileges" "경고: 일부 pmset wake 취소에 관리자 권한이 필요합니다")"
-    exit 0
+    return 0
 }
 
 # --- cancel individual job ---
 cancel_job() {
     local jid="$1"
-    [ "$jid" = "all" ] && cancel_all_jobs
+    [ "$jid" = "all" ] && { cancel_all_jobs; return $?; }
 
     validate_job_id "$jid"
     local label="${LABEL_PREFIX}.${jid}"
 
     if [ ! -f "${PLIST_DIR}/${label}.plist" ] && [ ! -f "$STORE/${jid}.sh" ]; then
-        _err "$(_t "Error: job not found (see 'ca -l')" "Error: 해당 Job ID를 찾을 수 없습니다 ('ca -l' 참조)"): ${jid}"
-        exit 1
+        _err "$(_t "Error: job not found (see 'ca list')" "Error: 해당 Job ID를 찾을 수 없습니다 ('ca list' 참조)"): ${jid}"
+        return 1
     fi
 
     launchctl bootout "gui/$(id -u)/${label}" 2>/dev/null || true
@@ -1264,7 +1492,7 @@ cancel_job() {
         rm -f "$STORE/.wake-${jid}"
     fi
     echo "$(_t "Cancelled:" "취소됨:") ${jid}"
-    exit 0
+    return 0
 }
 
 # --- modify prompt ---
@@ -1280,13 +1508,13 @@ modify_job() {
     local runner="$STORE/${jid}.sh"
 
     if [ ! -f "$runner" ]; then
-        _err "$(_t "Error: job not found (see 'ca -l')" "Error: 해당 Job ID를 찾을 수 없습니다 ('ca -l' 참조)"): ${jid}"
-        exit 1
+        _err "$(_t "Error: job not found (see 'ca list')" "Error: 해당 Job ID를 찾을 수 없습니다 ('ca list' 참조)"): ${jid}"
+        return 1
     fi
 
     if [ ! -f "$meta_file" ] || [ ! -f "$prompt_file" ]; then
         _err "$(_t "Error: metadata missing. Run 'ca --upgrade' first." "Error: 메타데이터 파일이 없습니다. 'ca --upgrade'를 먼저 실행하세요.")"
-        exit 1
+        return 1
     fi
 
     local old_prompt
@@ -1301,11 +1529,11 @@ modify_job() {
         display_prompt=$(<"$prompt_file")
         edited=$(CA_OLD="$display_prompt" CA_VP="$vared_prompt" zsh -c 'p="$CA_OLD"; vared -p "$CA_VP" p </dev/tty 2>/dev/tty; printf "%s" "$p"') || {
             _err "$(_t "Error: prompt editing failed" "Error: 프롬프트 편집 실패")"
-            exit 1
+            return 1
         }
         if [ -z "$edited" ]; then
             _err "$(_t "Error: empty prompt not allowed" "Error: 빈 프롬프트는 허용되지 않습니다")"
-            exit 1
+            return 1
         fi
         printf '%s' "$edited" | _atomic_write "$prompt_file"
     fi
@@ -1315,7 +1543,7 @@ modify_job() {
 
     if [ "$PROMPT" = "$old_prompt" ]; then
         echo "$(_t "No changes" "변경 사항 없음")"
-        exit 0
+        return 0
     fi
 
     _generate_exec "$jid"
@@ -1324,7 +1552,7 @@ modify_job() {
     echo "$(_t "Prompt modified:" "프롬프트 수정 완료:") ${jid}"
     echo "$(_t "Old:" "이전:") ${old_prompt:0:80}"
     echo "$(_t "New:" "변경:") ${PROMPT:0:80}"
-    exit 0
+    return 0
 }
 
 # --- reschedule job ---
@@ -1332,7 +1560,7 @@ retime_job() {
     local jid="$1"
     if [ -z "${2:-}" ]; then
         _err "$(_t "Error: time required (HH:MM, +30m, +2h, +1d)" "Error: 시간이 필요합니다 (HH:MM, +30m, +2h, +1d)")"
-        exit 1
+        return 1
     fi
     local time_str="$2"
 
@@ -1344,13 +1572,13 @@ retime_job() {
     local plist="${PLIST_DIR}/${label}.plist"
 
     if [ ! -f "$runner" ]; then
-        _err "$(_t "Error: job not found (see 'ca -l')" "Error: 해당 Job ID를 찾을 수 없습니다 ('ca -l' 참조)"): ${jid}"
-        exit 1
+        _err "$(_t "Error: job not found (see 'ca list')" "Error: 해당 Job ID를 찾을 수 없습니다 ('ca list' 참조)"): ${jid}"
+        return 1
     fi
 
     if [ ! -f "$meta_file" ]; then
         _err "$(_t "Error: metadata missing. Run 'ca --upgrade' first." "Error: 메타데이터 파일이 없습니다. 'ca --upgrade'를 먼저 실행하세요.")"
-        exit 1
+        return 1
     fi
 
     local META_TYPE="" META_MODE="" META_DIR="" META_SID="" META_FLAGS=""
@@ -1364,8 +1592,8 @@ retime_job() {
     if [ "$meta_type" = "repeat" ]; then
         if [[ "$time_str" == +* ]]; then
             _err "$(_t "Error: repeat jobs cannot use relative time (+Nm, +Nh, +Nd). Use HH:MM format." "Error: 반복 작업은 상대 시간(+Nm, +Nh, +Nd) 사용 불가. HH:MM 형식을 사용하세요.")"
-            _err "$(_t "Example:" "예:") ca -t ${jid} 08:00,13:00"
-            exit 1
+            _err "$(_t "Example:" "예:") ca reschedule ${jid} 08:00,13:00"
+            return 1
         fi
 
         validate_times "$time_str"
@@ -1383,18 +1611,18 @@ retime_job() {
         _write_plist_repeat "$label" "$runner" "$jid" "$weekdays" "$time_str"
         if ! launchctl bootstrap "gui/$(id -u)" "$plist"; then
             _err "$(_t "Error: launchctl bootstrap failed" "Error: launchctl bootstrap 실패")"
-            exit 1
+            return 1
         fi
 
         _schedule_next_repeat_wake "$jid" "$weekdays" "$time_str"
 
         echo "$(_t "Rescheduled:" "시간 변경 완료:") ${META_SCHEDULE} ${old_times} → ${META_SCHEDULE} ${time_str} (Job ID: ${jid})"
-        exit 0
+        return 0
     fi
 
     # ========== one-time job reschedule ==========
     local target
-    target=$(_parse_time_to_epoch "$time_str") || exit 1
+    target=$(_parse_time_to_epoch "$time_str") || return 1
 
     local target_fmt target_min target_hour target_day target_month target_ymd
     target_fmt=$(date -r "$target" '+%m/%d %H:%M')
@@ -1416,7 +1644,7 @@ retime_job() {
     _write_plist_once "$label" "$runner" "$jid" "$target_month" "$target_day" "$target_hour" "$target_min"
     if ! launchctl bootstrap "gui/$(id -u)" "$plist"; then
         _err "$(_t "Error: launchctl bootstrap failed" "Error: launchctl bootstrap 실패")"
-        exit 1
+        return 1
     fi
 
     if [ -f "$STORE/.wake-${jid}" ]; then
@@ -1434,7 +1662,7 @@ retime_job() {
     _try_schedule_wake "$wake_fmt" "$STORE/.wake-${jid}"
 
     echo "$(_t "Rescheduled:" "시간 변경 완료:") ${old_fmt} → ${target_fmt} (Job ID: ${jid})"
-    exit 0
+    return 0
 }
 
 # ===================================================================
@@ -1486,6 +1714,602 @@ upgrade_all_jobs() {
     exit 0
 }
 
+# --- auto-resume hook ---
+
+_ar_notify() {
+    local msg="$1"
+    local level="${2:-info}"  # info, warning, error, success
+    osascript -e "display notification \"${msg//\"/\\\"}\" with title \"claude-at\"" 2>/dev/null || true
+}
+
+_hook_auto_resume() {
+    # Disable set -e — hook handles errors explicitly via ERR trap
+    set +e
+    trap '_ec=$?; _ar_notify "auto-resume hook error: $BASH_COMMAND (exit $_ec)" "error"
+          echo "[$(date)] ERR: $BASH_COMMAND (exit $_ec)" >> "$STORE/auto-resume.log"' ERR
+
+    # Ensure store exists
+    mkdir -p "$STORE"
+
+    local input
+    input=$(cat)
+
+    # Log raw input
+    echo "[$(date)] INPUT: $input" >> "$STORE/auto-resume.log"
+
+    # Check dependencies
+    command -v node >/dev/null 2>&1 || { _ar_notify "auto-resume: node not found" "error"; return 1; }
+
+    # Parse JSON with node
+    local parsed
+    parsed=$(node -e "
+        try {
+            const d = JSON.parse(process.argv[1]);
+            console.log([
+                d.session_id || '',
+                d.error_details || '',
+                d.cwd || ''
+            ].join('\n'));
+        } catch(e) { process.exit(1); }
+    " "$input" 2>/dev/null) || { _ar_notify "auto-resume: JSON parse failed" "error"; return 1; }
+
+    local session_id error_details cwd_path
+    session_id=$(echo "$parsed" | sed -n '1p')
+    error_details=$(echo "$parsed" | sed -n '2p')
+    cwd_path=$(echo "$parsed" | sed -n '3p')
+
+    # Validate session_id
+    if [ -z "$session_id" ] || ! [[ "$session_id" =~ ^[a-zA-Z0-9_.-]+$ ]]; then
+        _ar_notify "auto-resume: invalid session_id" "error"
+        return 1
+    fi
+
+    # Recency guard
+    local guard_file="$STORE/.last-stop-${session_id}"
+    local now
+    now=$(date +%s)
+    if [ -f "$guard_file" ]; then
+        local recent_count=0
+        while IFS= read -r ts; do
+            [ -z "$ts" ] && continue
+            if [ $((now - ts)) -lt 1800 ]; then  # 30 minutes
+                recent_count=$((recent_count + 1))
+            fi
+        done < "$guard_file"
+        if [ "$recent_count" -ge 3 ]; then
+            local _guard_msg
+            _guard_msg="$(_t 'auto-resume: retry limit exceeded for session' 'auto-resume: 세션 재시도 한도 초과') ${session_id}"
+            _ar_notify "$_guard_msg" "warning"
+            echo "$_guard_msg" >&2
+            echo "[$(date)] BLOCKED: recency guard (${recent_count} in 30min)" >> "$STORE/auto-resume.log"
+            return 0
+        fi
+    fi
+    # Record this stop, keep only last 3
+    echo "$now" >> "$guard_file"
+    tail -3 "$guard_file" > "${guard_file}.tmp" && mv "${guard_file}.tmp" "$guard_file"
+
+    # Parse reset time from error_details using node
+    local buffer_secs="${CLAUDE_AT_RESUME_BUFFER_SECS:-300}"
+    local schedule_time
+    schedule_time=$(node -e "
+        const details = process.argv[1];
+        const bufferSecs = parseInt(process.argv[2]) || 300;
+
+        // Normalize '10pm' -> '10:00 PM', '8:30am' -> '8:30 AM' for Date parsing
+        function normalizeTime(s) {
+            const m = s.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)$/i);
+            if (!m) return s;
+            return m[1] + ':' + (m[2] || '00') + ' ' + m[3].toUpperCase();
+        }
+
+        // Pattern 1: 'resets 10pm (America/New_York)'
+        let m = details.match(/resets?\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm))\s*\(([^)]+)\)/i);
+        if (m) {
+            const timeStr = normalizeTime(m[1].trim());
+            const tz = m[2];
+            const now = new Date();
+            const dateStr = now.toLocaleDateString('en-US', {timeZone: tz});
+            const target = new Date(dateStr + ' ' + timeStr);
+            if (!isNaN(target)) {
+                if (target <= now) target.setDate(target.getDate() + 1);
+                target.setSeconds(target.getSeconds() + bufferSecs);
+                const hh = String(target.getHours()).padStart(2,'0');
+                const mm = String(target.getMinutes()).padStart(2,'0');
+                console.log(hh + ':' + mm);
+                process.exit(0);
+            }
+        }
+
+        // Pattern 2: 'resets Jan 29 at 8pm (America/New_York)'
+        m = details.match(/resets?\s+(\w+\s+\d+)\s+at\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm))\s*\(([^)]+)\)/i);
+        if (m) {
+            const target = new Date(m[1] + ' ' + normalizeTime(m[2].trim()));
+            if (!isNaN(target)) {
+                target.setSeconds(target.getSeconds() + bufferSecs);
+                const hh = String(target.getHours()).padStart(2,'0');
+                const mm = String(target.getMinutes()).padStart(2,'0');
+                console.log(hh + ':' + mm);
+                process.exit(0);
+            }
+        }
+
+        // Fallback: no parseable time
+        process.exit(1);
+    " "$error_details" "$buffer_secs" 2>/dev/null) || schedule_time="+5h"
+
+    # Resolve ca path
+    local ca_bin
+    ca_bin=$(command -v claude-at 2>/dev/null || command -v ca 2>/dev/null || echo "$0")
+
+    # Build resume prompt
+    local resume_prompt="${CLAUDE_AT_RESUME_PROMPT:-$(_t \
+        'You were interrupted by a rate limit. Review the conversation history and continue where you left off. Verify the current state before making changes. Do not repeat completed work.' \
+        'Rate limit으로 작업이 중단되었습니다. 대화 기록을 검토하고 중단된 지점부터 이어서 진행하세요. 변경 전 현재 상태를 확인하고, 이미 완료된 작업은 반복하지 마세요.')}"
+
+    # Schedule resume (requires Task 7: 'at' subcommand — until then, falls through to old CLI)
+    local ca_output
+    if ca_output=$(_CLAUDE_AT_SUBTYPE=auto-resume "$ca_bin" at "$schedule_time" -H -s "$session_id" "$resume_prompt" 2>&1); then
+        local job_info
+        job_info=$(echo "$ca_output" | grep -o 'Job ID: [^ ]*' | head -1 || echo "")
+        _ar_notify "$(_t "auto-resume: scheduled at ${schedule_time}" "auto-resume: ${schedule_time}에 재개 예약됨") | ca cancel ${job_info##*: }" "success"
+        echo "[$(date)] SCHEDULED: ${schedule_time} session=${session_id} ${job_info}" >> "$STORE/auto-resume.log"
+    else
+        _ar_notify "$(_t 'auto-resume: scheduling failed' 'auto-resume: 예약 실패')" "error"
+        echo "[$(date)] FAILED: ca exit=$? output=$ca_output" >> "$STORE/auto-resume.log"
+    fi
+}
+
+# ===================================================================
+# New functions for subcommand-based CLI
+# ===================================================================
+
+_parse_at_flags() {
+    # Parses flags from argument list between time and prompt
+    # Sets: _FLAG_DIR, _FLAG_SID, _HEADLESS, _QUIET
+    _FLAG_DIR=""
+    _FLAG_SID=""
+    _REMAINING_ARGS=()
+    local i=0
+
+    while [ $i -lt $# ]; do
+        local idx=$((i + 1))
+        local arg="${!idx}"
+        case "$arg" in
+            -d) i=$((i + 1)); idx=$((i + 1)); _FLAG_DIR="${!idx:-}"; [ -z "$_FLAG_DIR" ] && { _err "Error: -d requires directory path"; exit 1; } ;;
+            -s) i=$((i + 1)); idx=$((i + 1)); _FLAG_SID="${!idx:-}"; [ -z "$_FLAG_SID" ] && { _err "Error: -s requires session ID"; exit 1; } ;;
+            -H|--headless) _HEADLESS='yes' ;;
+            -q|--quiet) _QUIET='yes' ;;
+            *) _REMAINING_ARGS+=("$arg") ;;
+        esac
+        i=$((i + 1))
+    done
+
+    # Validate flag combinations
+    if [ -n "$_FLAG_DIR" ] && [ -n "$_FLAG_SID" ]; then
+        _err "$(_t "Error: -d and -s cannot be used together" "Error: -d와 -s는 함께 사용할 수 없습니다")"
+        exit 1
+    fi
+    if [ "$_QUIET" = 'yes' ] && [ "$_HEADLESS" != 'yes' ]; then
+        _err "$(_MSG_QUIET_REQUIRES_HEADLESS)"
+        exit 1
+    fi
+}
+
+_schedule_at() {
+    [ $# -lt 2 ] && { _err "Usage: ca at <time> [flags] 'prompt'"; exit 1; }
+
+    _FLAG_DIR=""
+    _FLAG_SID=""
+    local TIME_STR="$1"; shift
+    local PROMPT="${!#}"  # last argument
+
+    if [ $# -gt 1 ]; then
+        local flag_count=$(($# - 1))
+        local flag_args=()
+        local j=0
+        while [ $j -lt $flag_count ]; do
+            local jdx=$((j + 1))
+            flag_args+=("${!jdx}")
+            j=$((j + 1))
+        done
+        _parse_at_flags "${flag_args[@]}"
+    fi
+
+    mkdir -p "$STORE"
+    [ -d "$STORE" ] && chmod 700 "$STORE" 2>/dev/null || true
+    if [ -n "${CLAUDE_AT_STORE:-}" ] && [ "$(stat -f '%u' "$STORE")" != "$(id -u)" ]; then
+        _err "$(_t "Error: store directory must be owned by current user" "Error: 저장 디렉터리는 현재 사용자 소유여야 합니다"): $STORE"
+        exit 1
+    fi
+    validate_flags "$CLAUDE_AT_FLAGS"
+    _check_claude
+
+    local DIR MODE SID=""
+    if [ -n "${_FLAG_SID:-}" ]; then
+        MODE="resume"
+        SID="$_FLAG_SID"
+        validate_job_id "$SID"
+        DIR=$(resolve_session_dir "$SID") || {
+            _err "$(_t "Error: cannot find project directory for session" "Error: 세션의 프로젝트 디렉터리를 찾을 수 없습니다") '${SID}'"
+            exit 1
+        }
+    elif [ -n "${_FLAG_DIR:-}" ]; then
+        MODE="new"
+        DIR="$_FLAG_DIR"
+    else
+        MODE="new"
+        DIR="$(pwd)"
+    fi
+
+    validate_dir_path "$DIR"
+    [ ! -d "$DIR" ] && { _err "$(_t "Error: directory not found" "Error: 디렉터리를 찾을 수 없습니다"): $DIR"; exit 1; }
+    DIR=$(cd "$DIR" && pwd)
+    validate_dir_path "$DIR"
+
+    local id_prefix="once"
+    local meta_subtype=""
+    [ "$MODE" = "resume" ] && id_prefix="res"
+    [ "${_CLAUDE_AT_SUBTYPE:-}" = "auto-resume" ] && meta_subtype="auto-resume"
+
+    JOB_ID=$(_make_job_id "$id_prefix")
+
+    local target
+    target=$(_parse_time_to_epoch "$TIME_STR") || exit 1
+    local target_fmt target_min target_hour target_day target_month target_ymd
+    target_fmt=$(date -r "$target" '+%m/%d %H:%M')
+    target_min=$((10#$(date -r "$target" +%M)))
+    target_hour=$((10#$(date -r "$target" +%H)))
+    target_day=$((10#$(date -r "$target" +%d)))
+    target_month=$((10#$(date -r "$target" +%m)))
+    target_ymd=$(date -r "$target" +%Y%m%d)
+
+    _HL_FLAGS="$CLAUDE_AT_FLAGS"
+    if [ "$_HEADLESS" = 'yes' ]; then
+        extra_flag=$(_headless_perm_check "$CLAUDE_AT_FLAGS")
+        [ -n "$extra_flag" ] && _HL_FLAGS="${CLAUDE_AT_FLAGS:+${CLAUDE_AT_FLAGS} }${extra_flag}"
+    fi
+
+    printf '%s' "$PROMPT" | _atomic_write "$STORE/${JOB_ID}.prompt"
+    {
+        printf "META_TYPE='once'\n"
+        printf "META_MODE='%s'\n" "$MODE"
+        printf "META_DIR='%s'\n" "$DIR"
+        printf "META_SID='%s'\n" "${SID:-}"
+        printf "META_FLAGS='%s'\n" "$_HL_FLAGS"
+        printf "META_TARGET_FMT='%s'\n" "$target_fmt"
+        printf "META_TARGET_YMD='%s'\n" "$target_ymd"
+        printf "META_SCHEDULE=''\n"
+        printf "META_TIMES=''\n"
+        printf "META_WEEKDAYS=''\n"
+        [ "$_HEADLESS" = 'yes' ] && printf "META_HEADLESS='yes'\n"
+        [ "$_QUIET" = 'yes' ] && printf "META_QUIET='yes'\n"
+        [ -n "$meta_subtype" ] && printf "META_SUBTYPE='%s'\n" "$meta_subtype"
+    } | _atomic_write "$STORE/${JOB_ID}.meta"
+
+    [ -n "$_HL_FLAGS" ] && _err "$(_t "WARNING: This job will run with:" "경고: 이 작업은 다음 플래그로 실행됩니다:") $_HL_FLAGS"
+
+    _generate_exec "$JOB_ID"
+    _generate_runner "$JOB_ID"
+
+    local label="${LABEL_PREFIX}.${JOB_ID}"
+    local runner="$STORE/${JOB_ID}.sh"
+    mkdir -p "$PLIST_DIR"
+    _write_plist_once "$label" "$runner" "$JOB_ID" "$target_month" "$target_day" "$target_hour" "$target_min"
+
+    if ! launchctl bootstrap "gui/$(id -u)" "${PLIST_DIR}/${label}.plist"; then
+        _err "$(_t "Error: launchctl bootstrap failed." "Error: launchctl bootstrap 실패.")"
+        exit 1
+    fi
+
+    local wake_ts=$((target - 120))
+    local wake_fmt=$(date -r "$wake_ts" '+%m/%d/%Y %H:%M:%S')
+    _try_schedule_wake "$wake_fmt" "$STORE/.wake-${JOB_ID}"
+
+    echo "$(_t "Scheduled:" "예약 완료:") ${target_fmt} (Job ID: ${JOB_ID})"
+    exit 0
+}
+
+_schedule_every() {
+    [ $# -lt 3 ] && { _err "Usage: ca every <schedule> <time> [flags] 'prompt'"; exit 1; }
+
+    _FLAG_DIR=""
+    _FLAG_SID=""
+    local RPT_SCHEDULE="$1"; shift
+    local RPT_TIMES="$1"; shift
+    local PROMPT="${!#}"  # last argument
+
+    if [ $# -gt 1 ]; then
+        local flag_count=$(($# - 1))
+        local flag_args=()
+        local j=0
+        while [ $j -lt $flag_count ]; do
+            local jdx=$((j + 1))
+            flag_args+=("${!jdx}")
+            j=$((j + 1))
+        done
+        _parse_at_flags "${flag_args[@]}"
+    fi
+
+    # -s is not supported for repeat jobs
+    [ -n "${_FLAG_SID:-}" ] && { _err "$(_t "Error: -s is not supported for 'every' (repeat jobs always start a new session)" "Error: -s는 'every'에서 지원되지 않습니다 (반복 작업은 항상 새 세션을 시작합니다)")"; exit 1; }
+
+    mkdir -p "$STORE"
+    [ -d "$STORE" ] && chmod 700 "$STORE" 2>/dev/null || true
+    if [ -n "${CLAUDE_AT_STORE:-}" ] && [ "$(stat -f '%u' "$STORE")" != "$(id -u)" ]; then
+        _err "$(_t "Error: store directory must be owned by current user" "Error: 저장 디렉터리는 현재 사용자 소유여야 합니다"): $STORE"
+        exit 1
+    fi
+    validate_flags "$CLAUDE_AT_FLAGS"
+    _check_claude
+
+    local RPT_WEEKDAYS
+    RPT_WEEKDAYS=$(expand_schedule "$RPT_SCHEDULE") || exit 1
+    validate_times "$RPT_TIMES"
+
+    local RPT_DIR
+    if [ -n "${_FLAG_DIR:-}" ]; then
+        RPT_DIR="$_FLAG_DIR"
+    else
+        RPT_DIR="$(pwd)"
+    fi
+
+    validate_dir_path "$RPT_DIR"
+    [ ! -d "$RPT_DIR" ] && { _err "$(_t "Error: directory not found" "Error: 디렉터리를 찾을 수 없습니다"): $RPT_DIR"; exit 1; }
+    RPT_DIR=$(cd "$RPT_DIR" && pwd)
+    validate_dir_path "$RPT_DIR"
+
+    local RPT_SCHED_ID="${RPT_SCHEDULE//,/-}"
+    JOB_ID=$(_make_job_id "rpt.${RPT_SCHED_ID}")
+
+    _HL_FLAGS="$CLAUDE_AT_FLAGS"
+    if [ "$_HEADLESS" = 'yes' ]; then
+        extra_flag=$(_headless_perm_check "$CLAUDE_AT_FLAGS")
+        [ -n "$extra_flag" ] && _HL_FLAGS="${CLAUDE_AT_FLAGS:+${CLAUDE_AT_FLAGS} }${extra_flag}"
+    fi
+
+    printf '%s' "$PROMPT" | _atomic_write "$STORE/${JOB_ID}.prompt"
+    {
+        printf "META_TYPE='repeat'\n"
+        printf "META_MODE='new'\n"
+        printf "META_DIR='%s'\n" "$RPT_DIR"
+        printf "META_SID=''\n"
+        printf "META_FLAGS='%s'\n" "$_HL_FLAGS"
+        printf "META_SCHEDULE='%s'\n" "$RPT_SCHEDULE"
+        printf "META_TIMES='%s'\n" "$RPT_TIMES"
+        printf "META_WEEKDAYS='%s'\n" "$RPT_WEEKDAYS"
+        [ "$_HEADLESS" = 'yes' ] && printf "META_HEADLESS='yes'\n"
+        [ "$_QUIET" = 'yes' ] && printf "META_QUIET='yes'\n"
+    } | _atomic_write "$STORE/${JOB_ID}.meta"
+
+    [ -n "$_HL_FLAGS" ] && _err "$(_t "WARNING: This job will run with:" "경고: 이 작업은 다음 플래그로 실행됩니다:") $_HL_FLAGS"
+
+    _ensure_wake_helper
+    _generate_exec "$JOB_ID"
+    _generate_runner "$JOB_ID"
+
+    local label="${LABEL_PREFIX}.${JOB_ID}"
+    local runner="$STORE/${JOB_ID}.sh"
+    mkdir -p "$PLIST_DIR"
+    _write_plist_repeat "$label" "$runner" "$JOB_ID" "$RPT_WEEKDAYS" "$RPT_TIMES"
+
+    if ! launchctl bootstrap "gui/$(id -u)" "${PLIST_DIR}/${label}.plist"; then
+        _err "$(_t "Error: launchctl bootstrap failed." "Error: launchctl bootstrap 실패.")"
+        exit 1
+    fi
+
+    _schedule_next_repeat_wake "$JOB_ID" "$RPT_WEEKDAYS" "$RPT_TIMES"
+
+    echo "$(_t "Scheduled:" "반복 예약 완료:") ${RPT_SCHEDULE} ${RPT_TIMES} (Job ID: ${JOB_ID})"
+    exit 0
+}
+
+_status_summary() {
+    echo "claude-at $VERSION"
+    echo ""
+
+    if _settings_json_has_hook 2>/dev/null; then
+        echo "$(_t "auto-resume: enabled" "auto-resume: 활성")"
+    else
+        echo "$(_t "auto-resume: disabled" "auto-resume: 비활성")"
+    fi
+
+    if [ -f "$STORE/rpt.keep-alive.meta" ] && [ -f "$STORE/rpt.keep-alive.sh" ]; then
+        local times
+        times=$(_read_meta "$STORE/rpt.keep-alive.meta" META_TIMES)
+        echo "$(_t "keep-alive:  enabled" "keep-alive:  활성") ($times)"
+    else
+        echo "$(_t "keep-alive:  disabled" "keep-alive:  비활성")"
+    fi
+
+    local count=0
+    for f in "$STORE"/*.meta; do
+        [ -f "$f" ] || continue
+        local fname; fname=$(basename "$f" .meta)
+        [ -f "$STORE/${fname}.sh" ] && count=$((count + 1))
+    done
+    echo ""
+    echo "$(_t "Scheduled jobs:" "예약된 작업:") ${count}$(_t " jobs" "개")"
+    echo "$(_t "'ca list' for details, 'ca help' for usage" "'ca list'로 목록 확인, 'ca help'로 사용법 확인")"
+    return 0
+}
+
+_full_setup() {
+    echo "claude-at $(_t "initial setup" "초기 설정")"
+    echo "━━━━━━━━━━━━━━━━━━"
+    echo ""
+
+    # Step 1: pmset
+    echo "[1/3] $(_t "Wake-from-sleep permissions" "Wake-from-sleep 권한 설정")"
+    if _can_pmset_sudo; then
+        echo "      $(_t "Already configured. Skipping." "이미 설정되어 있습니다. 건너뜁니다.")"
+    else
+        echo "      $(_t "Required for scheduled jobs to run while Mac is asleep." "Mac이 잠든 상태에서도 예약 작업을 실행하려면 필요합니다.")"
+        printf "      $(_t "Set up? [Y/n] " "설정할까요? [Y/n] ")"
+        local c; read -r c
+        case "${c:-Y}" in
+            n|N) echo "      $(_t "Skipped." "건너뛰었습니다.")" ;;
+            *) _setup_pmset_sudo && echo "      Done." || echo "      Failed." ;;
+        esac
+    fi
+    echo ""
+
+    # Step 2: auto-resume
+    echo "[2/3] $(_t "Auto-resume" "Auto-resume 활성화")"
+    if _settings_json_has_hook 2>/dev/null; then
+        echo "      $(_t "Already enabled. Skipping." "이미 활성화되어 있습니다. 건너뜁니다.")"
+    else
+        echo "      $(_t "Automatically resumes sessions after rate limits." "Rate limit 시 자동으로 세션을 재개합니다.")"
+        printf "      $(_t "Enable? [Y/n] " "활성화할까요? [Y/n] ")"
+        local c; read -r c
+        case "${c:-Y}" in
+            n|N) echo "      $(_t "Skipped." "건너뛰었습니다.")" ;;
+            *) _auto_resume_cmd enable ;;
+        esac
+    fi
+    echo ""
+
+    # Step 3: keep-alive
+    echo "[3/3] $(_t "Keep-alive" "Keep-alive 활성화")"
+    if [ -f "$STORE/rpt.keep-alive.meta" ] && [ -f "$STORE/rpt.keep-alive.sh" ]; then
+        echo "      $(_t "Already enabled. Skipping." "이미 활성화되어 있습니다. 건너뜁니다.")"
+    else
+        echo "      $(_t "Resets the 5-hour timer every 5 hours." "5시간마다 제한 타이머를 자동 리셋합니다.")"
+        printf "      $(_t "Enable? [Y/n] " "활성화할까요? [Y/n] ")"
+        local c; read -r c
+        case "${c:-Y}" in
+            n|N) echo "      $(_t "Skipped." "건너뛰었습니다.")" ;;
+            *) _keep_alive_cmd enable ;;
+        esac
+    fi
+    echo ""
+    echo "$(_t "Setup complete!" "설정 완료!")"
+    _status_summary
+}
+
+_teardown() {
+    echo "[1/4] $(_t "Removing auto-resume hook..." "auto-resume hook 제거...")"
+    _settings_json_remove_hook
+    echo "      Done."
+
+    echo "[2/4] $(_t "Cleaning up auto-resume jobs..." "auto-resume 예약 정리...")"
+    local ar_count=0
+    for f in "$STORE"/*.meta; do
+        [ -f "$f" ] || continue
+        local subtype; subtype=$(_read_meta "$f" META_SUBTYPE)
+        if [ "$subtype" = "auto-resume" ]; then
+            local fname; fname=$(basename "$f" .meta)
+            cancel_job "$fname" 2>/dev/null && ar_count=$((ar_count + 1))
+        fi
+    done
+    echo "      Done. ($ar_count $(_t "cancelled" "취소됨"))"
+
+    echo "[3/4] $(_t "Disabling keep-alive..." "keep-alive 해제...")"
+    if [ -f "$STORE/rpt.keep-alive.sh" ]; then
+        cancel_job "rpt.keep-alive" 2>/dev/null
+    fi
+    echo "      Done."
+
+    echo "[4/4] $(_t "Removing pmset permissions..." "pmset 권한 제거...")"
+    if [ -f /etc/sudoers.d/claude-at ]; then
+        sudo rm -f /etc/sudoers.d/claude-at && echo "      Done." || echo "      Failed. (sudo required)"
+    else
+        echo "      $(_t "Not configured. Skipping." "설정되어 있지 않습니다.")"
+    fi
+
+    local user_count=0
+    for f in "$STORE"/*.meta; do
+        [ -f "$f" ] || continue
+        local fname; fname=$(basename "$f" .meta)
+        [ -f "$STORE/${fname}.sh" ] && user_count=$((user_count + 1))
+    done
+    echo ""
+    if [ "$user_count" -gt 0 ]; then
+        echo "$(_t "User jobs remaining:" "사용자 예약 작업 유지:") ${user_count}$(_t " jobs" "개")"
+        echo "$(_t "To remove all: ca cancel all" "전체 삭제: ca cancel all")"
+    fi
+}
+
+_resolve_job_ref() {
+    local ref="$1"
+    ref="${ref#\#}"
+    if [[ "$ref" =~ ^[0-9]+$ ]]; then
+        # Build same sort key as list_jobs to ensure index consistency
+        local sort_lines=""
+        for f in "$STORE"/*.meta; do
+            [ -f "$f" ] || continue
+            local fname; fname=$(basename "$f" .meta)
+            [ -f "$STORE/${fname}.sh" ] || continue
+            local m_type m_subtype m_schedule m_times m_target_fmt
+            m_type=$(_read_meta "$f" META_TYPE)
+            m_subtype=$(_read_meta "$f" META_SUBTYPE)
+            m_schedule=$(_read_meta "$f" META_SCHEDULE)
+            m_times=$(_read_meta "$f" META_TIMES)
+            m_target_fmt=$(_read_meta "$f" META_TARGET_FMT)
+            local type_display="${m_subtype:-${m_type:-once}}"
+            local m_flags; m_flags=$(_read_meta "$f" META_FLAGS)
+            [ -n "$m_flags" ] && type_display="${type_display} [!]"
+            local sched_display
+            if [ "${m_type:-once}" = "repeat" ]; then
+                sched_display="${m_schedule} ${m_times}"
+            else
+                sched_display="${m_target_fmt}"
+            fi
+            sort_lines+="${type_display} | ${sched_display} | ${fname}"$'\n'
+        done
+        local target_fname
+        target_fname=$(echo "$sort_lines" | sort | sed -n "${ref}p" | awk -F ' \\| ' '{print $3}' | tr -d '[:space:]')
+        if [ -n "$target_fname" ]; then
+            echo "$target_fname"
+            return 0
+        fi
+        _err "$(_t "Error: no job at index" "Error: 해당 인덱스에 작업 없음") #$ref"
+        return 1
+    fi
+    echo "$ref"
+}
+
+show_job() {
+    local jid
+    jid=$(_resolve_job_ref "$1") || exit 1
+
+    local meta_file="$STORE/${jid}.meta"
+    local prompt_file="$STORE/${jid}.prompt"
+
+    if [ ! -f "$meta_file" ]; then
+        _err "$(_t "Error: job not found" "Error: 작업을 찾을 수 없습니다"): ${jid}"
+        return 1
+    fi
+
+    local META_TYPE="" META_MODE="" META_DIR="" META_SID="" META_FLAGS=""
+    local META_TARGET_FMT="" META_TARGET_YMD=""
+    local META_SCHEDULE="" META_TIMES="" META_WEEKDAYS=""
+    local META_HEADLESS="" META_QUIET="" META_SUBTYPE=""
+    _load_meta "$meta_file"
+
+    echo "Job ID:    ${jid}"
+    echo "Type:      ${META_TYPE:-once}"
+    [ -n "$META_SUBTYPE" ] && echo "Subtype:   ${META_SUBTYPE}"
+    echo "Mode:      ${META_MODE:-new}"
+    echo "Directory: ${META_DIR}"
+    [ -n "$META_SID" ] && echo "Session:   ${META_SID}"
+    [ "$META_TYPE" = "once" ] && echo "Scheduled: ${META_TARGET_FMT}"
+    [ "$META_TYPE" = "repeat" ] && echo "Schedule:  ${META_SCHEDULE} ${META_TIMES}"
+    [ "$META_HEADLESS" = "yes" ] && echo "Headless:  yes"
+    [ "$META_QUIET" = "yes" ] && echo "Quiet:     yes"
+    [ -n "$META_FLAGS" ] && echo "Flags:     ${META_FLAGS}"
+    if [ -f "$prompt_file" ]; then
+        local prompt_content
+        prompt_content=$(<"$prompt_file")
+        echo "Prompt:    ${prompt_content:0:200}"
+    fi
+    return 0
+}
+
+# ===================================================================
+# Subcommand dispatcher
+# ===================================================================
+
 # --- Pre-process headless/quiet flags ---
 _HEADLESS=''
 _QUIET=''
@@ -1505,266 +2329,47 @@ if [ "$_QUIET" = 'yes' ] && [ "$_HEADLESS" != 'yes' ]; then
 fi
 
 case "${1:-}" in
-    -h|--help)    show_help ;;
-    -V|--version) echo "claude-at $VERSION"; exit 0 ;;
-    -l|--list)    list_jobs ;;
-    -c|--cancel)  [ -z "${2:-}" ] && { _err "$(_t "Error: job-id required" "Error: Job ID가 필요합니다"): ca -c <job-id>"; exit 1; }; cancel_job "$2" ;;
-    -m|--modify)  [ -z "${2:-}" ] && { _err "$(_t "Error: job-id required" "Error: Job ID가 필요합니다"): ca -m <job-id>"; exit 1; }; modify_job "$2" "${3:-}" ;;
-    -t|--time)    [ -z "${2:-}" ] && { _err "$(_t "Error: job-id required" "Error: Job ID가 필요합니다"): ca -t <job-id> <time>"; exit 1; }; retime_job "$2" "${3:-}" ;;
+    # Internal
+    _hook-auto-resume) _hook_auto_resume; exit $? ;;
+    _test-settings-add)    [ -n "${CLAUDE_AT_STORE:-}" ] || { _err "test-only command"; exit 1; }; _settings_json_add_hook "$2"; exit 0 ;;
+    _test-settings-remove) [ -n "${CLAUDE_AT_STORE:-}" ] || { _err "test-only command"; exit 1; }; _settings_json_remove_hook; exit 0 ;;
+
+    # Core features
+    auto-resume) shift; _auto_resume_cmd "${1:-status}"; exit 0 ;;
+    keep-alive)  shift; _keep_alive_cmd "$@"; exit 0 ;;
+
+    # Management
+    list)       list_jobs; exit $? ;;
+    show)       [ -z "${2:-}" ] && { _err "Usage: ca show <job-id|#index>"; exit 1; }; show_job "$2"; exit $? ;;
+    cancel)     [ -z "${2:-}" ] && { _err "Usage: ca cancel <job-id|#index|all>"; exit 1; }; cancel_job "$(_resolve_job_ref "$2")"; exit $? ;;
+    edit)       [ -z "${2:-}" ] && { _err "Usage: ca edit <job-id|#index> [prompt]"; exit 1; }; modify_job "$(_resolve_job_ref "$2")" "${3:-}"; exit $? ;;
+    reschedule) [ -z "${2:-}" ] && { _err "Usage: ca reschedule <job-id|#index> <time>"; exit 1; }; retime_job "$(_resolve_job_ref "$2")" "${3:-}"; exit $? ;;
+
+    # Settings
+    setup)      _full_setup; exit 0 ;;
+    teardown)   _teardown; exit 0 ;;
+    upgrade)    upgrade_all_jobs ;;
+    version|--version|-V) echo "claude-at $VERSION"; exit 0 ;;
+    help|--help|-h) show_help ;;
+
+    # Scheduling
+    at)    shift; _schedule_at "$@" ;;
+    every) shift; _schedule_every "$@" ;;
+
+    # No args = status summary
+    '') _status_summary ;;
+
+    # Backward compat: old flags
+    -l|--list)    list_jobs; exit $? ;;
+    -c|--cancel)  [ -z "${2:-}" ] && { _err "$(_t "Error: job-id required" "Error: Job ID가 필요합니다"): ca cancel <job-id>"; exit 1; }; cancel_job "$2"; exit $? ;;
+    -m|--modify)  [ -z "${2:-}" ] && { _err "$(_t "Error: job-id required" "Error: Job ID가 필요합니다"): ca edit <job-id>"; exit 1; }; modify_job "$2" "${3:-}"; exit $? ;;
+    -t|--time)    [ -z "${2:-}" ] && { _err "$(_t "Error: job-id required" "Error: Job ID가 필요합니다"): ca reschedule <job-id> <time>"; exit 1; }; retime_job "$2" "${3:-}"; exit $? ;;
     -u|--upgrade) upgrade_all_jobs ;;
     -S|--setup)   _setup_pmset_sudo; exit $? ;;
-    -r|--repeat)  ;;  # handled below in repeat mode
-    -*)
-        _err "$(_t "Error: unknown option" "Error: 알 수 없는 옵션"): $1"
-        _err "$(_t "Help:" "도움말:") ca --help"
-        exit 1
-        ;;
+    -r|--repeat)  shift; _schedule_every "$@" ;;
+
+    # Unknown
+    *) _err "$(_t "Error: unknown command" "Error: 알 수 없는 명령"): $1"
+       _err "$(_t "Run 'ca help' for usage" "'ca help'로 사용법 확인")"
+       exit 1 ;;
 esac
-
-mkdir -p "$STORE"
-# Ensure store directory has correct permissions
-[ -d "$STORE" ] && chmod 700 "$STORE" 2>/dev/null || true
-
-# Verify store directory ownership when using a custom path
-if [ -n "${CLAUDE_AT_STORE:-}" ] && [ "$(stat -f '%u' "$STORE")" != "$(id -u)" ]; then
-    _err "$(_t "Error: store directory must be owned by current user" "Error: 저장 디렉터리는 현재 사용자 소유여야 합니다"): $STORE"
-    exit 1
-fi
-
-# Validate CLAUDE_AT_FLAGS
-validate_flags "$CLAUDE_AT_FLAGS"
-
-# Check claude CLI availability
-_check_claude
-
-# ========== Repeat scheduling mode (-r / --repeat) ==========
-if [ "${1:-}" = "-r" ] || [ "${1:-}" = "--repeat" ]; then
-    shift
-    [ $# -lt 3 ] && { _err "$(_t "Error: usage: ca -r <schedule> <time> [directory] 'prompt'" "Error: 사용법: ca -r <schedule> <time> [directory] 'prompt'")"; exit 1; }
-
-    RPT_SCHEDULE="$1"; shift
-    RPT_TIMES="$1"; shift
-
-    RPT_WEEKDAYS=$(expand_schedule "$RPT_SCHEDULE") || exit 1
-    validate_times "$RPT_TIMES"
-
-    if [ $# -ge 2 ] && [[ "$1" == /* ]]; then
-        RPT_DIR="$1"; shift
-        RPT_PROMPT="$1"
-    else
-        RPT_DIR="$(pwd)"
-        [ -z "${1:-}" ] && { _err "$(_t "Error: prompt required" "Error: 프롬프트가 필요합니다")"; exit 1; }
-        RPT_PROMPT="$1"
-    fi
-
-    validate_dir_path "$RPT_DIR"
-
-    [ ! -d "$RPT_DIR" ] && { _err "$(_t "Error: directory not found" "Error: 디렉터리를 찾을 수 없습니다"): $RPT_DIR"; exit 1; }
-    RPT_DIR=$(cd "$RPT_DIR" && pwd)
-    validate_dir_path "$RPT_DIR"
-
-    RPT_SCHED_ID="${RPT_SCHEDULE//,/-}"
-    JOB_ID=$(_make_job_id "rpt.${RPT_SCHED_ID}")
-
-    # Headless: check permissions before writing metadata
-    _HL_FLAGS="$CLAUDE_AT_FLAGS"
-    if [ "$_HEADLESS" = 'yes' ]; then
-        extra_flag=$(_headless_perm_check "$CLAUDE_AT_FLAGS")
-        if [ -n "$extra_flag" ]; then
-            _HL_FLAGS="${CLAUDE_AT_FLAGS:+${CLAUDE_AT_FLAGS} }${extra_flag}"
-        fi
-    fi
-
-    # Save prompt & metadata
-    printf '%s' "$RPT_PROMPT" | _atomic_write "$STORE/${JOB_ID}.prompt"
-    {
-        printf "META_TYPE='repeat'\n"
-        printf "META_MODE='new'\n"
-        printf "META_DIR='%s'\n" "$RPT_DIR"
-        printf "META_SID=''\n"
-        printf "META_FLAGS='%s'\n" "$_HL_FLAGS"
-        printf "META_SCHEDULE='%s'\n" "$RPT_SCHEDULE"
-        printf "META_TIMES='%s'\n" "$RPT_TIMES"
-        printf "META_WEEKDAYS='%s'\n" "$RPT_WEEKDAYS"
-        [ "$_HEADLESS" = 'yes' ] && printf "META_HEADLESS='yes'\n"
-        [ "$_QUIET" = 'yes' ] && printf "META_QUIET='yes'\n"
-    } | _atomic_write "$STORE/${JOB_ID}.meta"
-
-    # Show warning if flags are set
-    [ -n "$_HL_FLAGS" ] && _err "$(_t "WARNING: This job will run with:" "경고: 이 작업은 다음 플래그로 실행됩니다:") $_HL_FLAGS"
-
-    _ensure_wake_helper
-
-    _generate_exec "$JOB_ID"
-    _generate_runner "$JOB_ID"
-
-    label="${LABEL_PREFIX}.${JOB_ID}"
-    runner="$STORE/${JOB_ID}.sh"
-    mkdir -p "$PLIST_DIR"
-    _write_plist_repeat "$label" "$runner" "$JOB_ID" "$RPT_WEEKDAYS" "$RPT_TIMES"
-
-    if ! launchctl bootstrap "gui/$(id -u)" "${PLIST_DIR}/${label}.plist"; then
-        _err "$(_t "Error: launchctl bootstrap failed. Try: ca -c ${JOB_ID}" "Error: launchctl bootstrap 실패. 시도: ca -c ${JOB_ID}")"
-        exit 1
-    fi
-
-    _schedule_next_repeat_wake "$JOB_ID" "$RPT_WEEKDAYS" "$RPT_TIMES"
-
-    if [ "$_HEADLESS" = 'yes' ]; then
-        echo "$(_t "Mode: repeat (headless)" "모드: 반복 (헤드리스)") (${RPT_DIR})"
-    else
-        echo "$(_t "Mode: repeat" "모드: 반복") (${RPT_DIR})"
-    fi
-    echo "$(_t "Scheduled:" "반복 예약 완료:") ${RPT_SCHEDULE} ${RPT_TIMES} (Job ID: ${JOB_ID})"
-    echo "$(_t "Check:" "확인:") ca -l"
-    exit 0
-fi
-
-# ========== One-time scheduling mode ==========
-[ $# -lt 2 ] && show_help
-
-TIME_STR="$1"
-SID=""
-_AMBIGUOUS_RESUME=false
-
-# --- Mode detection ---
-if [ $# -ge 3 ]; then
-    if [[ "$2" == /* ]]; then
-        MODE="new"
-        DIR="$2"
-        PROMPT="$3"
-    else
-        MODE="resume"
-        SID="$2"
-        PROMPT="$3"
-    fi
-else
-    arg2="$2"
-    if [[ "$arg2" == /* ]]; then
-        MODE="new"
-        DIR="$(pwd)"
-        PROMPT="$arg2"
-    elif [[ "$arg2" =~ ^[a-zA-Z0-9_.-]+$ ]] && resolve_session_dir "$arg2" >/dev/null 2>&1; then
-        _AMBIGUOUS_RESUME=true
-        if [ -t 0 ]; then
-            printf "$(_t "Session '%s' found. Resume it? [y/N] (N = use as prompt) " "세션 '%s'을 찾았습니다. 재개할까요? [y/N] (N = 프롬프트로 사용) ")" "$arg2"
-            _confirm=""
-            read -r _confirm
-            case "$_confirm" in
-                y|Y|yes|YES)
-                    MODE="resume"
-                    SID="$arg2"
-                    PROMPT=""
-                    ;;
-                *)
-                    MODE="new"
-                    DIR="$(pwd)"
-                    PROMPT="$arg2"
-                    _AMBIGUOUS_RESUME=false
-                    ;;
-            esac
-        else
-            MODE="new"
-            DIR="$(pwd)"
-            PROMPT="$arg2"
-            _AMBIGUOUS_RESUME=false
-        fi
-    else
-        MODE="new"
-        DIR="$(pwd)"
-        PROMPT="$arg2"
-    fi
-fi
-
-# Headless: block resume mode
-if [ "$_HEADLESS" = 'yes' ] && [ "$MODE" = "resume" ]; then
-    _err "$(_MSG_HEADLESS_NO_RESUME)"
-    exit 1
-fi
-
-# --- Mode-specific validation ---
-if [ "$MODE" = "new" ]; then
-    validate_dir_path "$DIR"
-    [ ! -d "$DIR" ] && { _err "$(_t "Error: directory not found" "Error: 디렉터리를 찾을 수 없습니다"): $DIR"; exit 1; }
-    DIR=$(cd "$DIR" && pwd)
-    validate_dir_path "$DIR"
-    if [ "$_HEADLESS" = 'yes' ]; then
-        echo "$(_t "Mode: new session (headless)" "모드: 새 세션 (헤드리스)") (${DIR})"
-    else
-        echo "$(_t "Mode: new session" "모드: 새 세션") (${DIR})"
-    fi
-    id_prefix="new"
-else
-    validate_job_id "$SID"
-    DIR=$(resolve_session_dir "$SID") || {
-        _err "$(_t "Error: cannot find project directory for session" "Error: 세션의 프로젝트 디렉터리를 찾을 수 없습니다") '${SID}'"
-        exit 1
-    }
-    validate_dir_path "$DIR"
-    echo "$(_t "Mode: resume session" "모드: 세션 재개") (${SID})"
-    id_prefix="res"
-fi
-
-JOB_ID=$(_make_job_id "$id_prefix")
-
-# --- Calculate target time ---
-target=$(_parse_time_to_epoch "$TIME_STR") || exit 1
-
-target_fmt=$(date -r "$target" '+%m/%d %H:%M')
-target_min=$((10#$(date -r "$target" +%M)))
-target_hour=$((10#$(date -r "$target" +%H)))
-target_day=$((10#$(date -r "$target" +%d)))
-target_month=$((10#$(date -r "$target" +%m)))
-target_ymd=$(date -r "$target" +%Y%m%d)
-
-# Headless: check permissions before writing metadata
-_HL_FLAGS="$CLAUDE_AT_FLAGS"
-if [ "$_HEADLESS" = 'yes' ]; then
-    extra_flag=$(_headless_perm_check "$CLAUDE_AT_FLAGS")
-    if [ -n "$extra_flag" ]; then
-        _HL_FLAGS="${CLAUDE_AT_FLAGS:+${CLAUDE_AT_FLAGS} }${extra_flag}"
-    fi
-fi
-
-# --- Save prompt & metadata ---
-printf '%s' "$PROMPT" | _atomic_write "$STORE/${JOB_ID}.prompt"
-{
-    printf "META_TYPE='once'\n"
-    printf "META_MODE='%s'\n" "$MODE"
-    printf "META_DIR='%s'\n" "$DIR"
-    printf "META_SID='%s'\n" "${SID:-}"
-    printf "META_FLAGS='%s'\n" "$_HL_FLAGS"
-    printf "META_TARGET_FMT='%s'\n" "$target_fmt"
-    printf "META_TARGET_YMD='%s'\n" "$target_ymd"
-    printf "META_SCHEDULE=''\n"
-    printf "META_TIMES=''\n"
-    printf "META_WEEKDAYS=''\n"
-    [ "$_HEADLESS" = 'yes' ] && printf "META_HEADLESS='yes'\n"
-    [ "$_QUIET" = 'yes' ] && printf "META_QUIET='yes'\n"
-} | _atomic_write "$STORE/${JOB_ID}.meta"
-
-# Show warning if flags are set
-[ -n "$_HL_FLAGS" ] && _err "$(_t "WARNING: This job will run with:" "경고: 이 작업은 다음 플래그로 실행됩니다:") $_HL_FLAGS"
-
-# --- Generate scripts ---
-_generate_exec "$JOB_ID"
-_generate_runner "$JOB_ID"
-
-# --- Register LaunchAgent ---
-label="${LABEL_PREFIX}.${JOB_ID}"
-runner="$STORE/${JOB_ID}.sh"
-mkdir -p "$PLIST_DIR"
-_write_plist_once "$label" "$runner" "$JOB_ID" "$target_month" "$target_day" "$target_hour" "$target_min"
-
-if ! launchctl bootstrap "gui/$(id -u)" "${PLIST_DIR}/${label}.plist"; then
-    _err "$(_t "Error: launchctl bootstrap failed. Try: ca -c ${JOB_ID}" "Error: launchctl bootstrap 실패. 시도: ca -c ${JOB_ID}")"
-    exit 1
-fi
-
-# --- Schedule pmset wake ---
-wake_ts=$((target - 120))
-wake_fmt=$(date -r "$wake_ts" '+%m/%d/%Y %H:%M:%S')
-_try_schedule_wake "$wake_fmt" "$STORE/.wake-${JOB_ID}"
-
-echo "$(_t "Scheduled:" "예약 완료:") ${target_fmt} (Job ID: ${JOB_ID})"
-echo "$(_t "Check:" "확인:") ca -l"
