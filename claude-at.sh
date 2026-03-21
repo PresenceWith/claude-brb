@@ -1233,7 +1233,7 @@ cancel_all_jobs() {
 # --- cancel individual job ---
 cancel_job() {
     local jid="$1"
-    [ "$jid" = "all" ] && cancel_all_jobs
+    [ "$jid" = "all" ] && { cancel_all_jobs; return $?; }
 
     validate_job_id "$jid"
     local label="${LABEL_PREFIX}.${jid}"
