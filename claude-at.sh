@@ -592,7 +592,7 @@ _setup_pmset_sudo() {
         "이 설정 없이는 Mac이 잠자기 상태일 때 예약이 지연될 수 있습니다.")"
     _err ""
     _err "$(_t "Will create:" "생성할 파일:") ${sudoers_file}"
-    _err "  ${user} ALL=(root) NOPASSWD: /usr/bin/pmset"
+    _err "  ${user} ALL=(root) NOPASSWD: /usr/bin/pmset schedule wake *, /usr/bin/pmset schedule cancel wake *, /usr/bin/pmset -g sched"
     _err ""
     _err "$(_t \
         "Note: Lid must be open or an external monitor connected." \
@@ -613,7 +613,7 @@ _setup_pmset_sudo() {
             ;;
     esac
 
-    local rule="${user} ALL=(root) NOPASSWD: /usr/bin/pmset"
+    local rule="${user} ALL=(root) NOPASSWD: /usr/bin/pmset schedule wake *, /usr/bin/pmset schedule cancel wake *, /usr/bin/pmset -g sched"
     if printf '# claude-at: allow passwordless pmset for wake scheduling\n%s\n' "$rule" \
         | sudo tee "$sudoers_file" >/dev/null \
         && sudo chmod 0440 "$sudoers_file" \
