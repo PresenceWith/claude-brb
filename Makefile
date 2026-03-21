@@ -27,8 +27,10 @@ uninstall-user:
 
 test:
 	@echo "Running smoke tests..."
-	@bash claude-at.sh --version | grep -q "claude-at" && echo "  PASS: --version" || echo "  FAIL: --version"
-	@bash claude-at.sh --help >/dev/null 2>&1 && echo "  PASS: --help" || echo "  FAIL: --help"
+	@bash claude-at.sh version | grep -q "claude-at" && echo "  PASS: version" || echo "  FAIL: version"
+	@bash claude-at.sh --version | grep -q "claude-at" && echo "  PASS: --version (compat)" || echo "  FAIL: --version (compat)"
+	@bash claude-at.sh help >/dev/null 2>&1 && echo "  PASS: help" || echo "  FAIL: help"
+	@bash claude-at.sh --help >/dev/null 2>&1 && echo "  PASS: --help (compat)" || echo "  FAIL: --help (compat)"
 	@echo "Done."
 
 release:
