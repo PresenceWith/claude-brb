@@ -26,12 +26,7 @@ uninstall-user:
 	rm -f $(HOME)/.local/bin/claude-at $(HOME)/.local/bin/ca
 
 test:
-	@echo "Running smoke tests..."
-	@bash claude-at.sh version | grep -q "claude-at" && echo "  PASS: version" || echo "  FAIL: version"
-	@bash claude-at.sh --version | grep -q "claude-at" && echo "  PASS: --version (compat)" || echo "  FAIL: --version (compat)"
-	@bash claude-at.sh help >/dev/null 2>&1 && echo "  PASS: help" || echo "  FAIL: help"
-	@bash claude-at.sh --help >/dev/null 2>&1 && echo "  PASS: --help (compat)" || echo "  FAIL: --help (compat)"
-	@echo "Done."
+	bash test-v2.sh
 
 release:
 	@[ -n "$(V)" ] || { echo "Usage: make release V=x.y.z"; exit 1; }
