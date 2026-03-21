@@ -3,7 +3,7 @@
 set -euo pipefail
 umask 077
 
-VERSION="0.1.6"
+VERSION="0.2.0"
 
 # --- i18n: detect locale once, cache result ---
 _lang_code="${CLAUDE_AT_LANG:-${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}}"
@@ -59,157 +59,157 @@ esac
 show_help() {
     if [ "$_LANG_KO" -eq 1 ]; then
         cat <<'HELP'
-claude-at, ca — 지정 시간에 claude 세션을 예약 (launchd 기반)
+claude-at, ca — Claude Code 세션 연속성 관리 도구
 
 Usage:
+  # 핵심 기능
+  ca auto-resume enable           자동 재개 활성화
+  ca auto-resume disable          비활성화
+  ca auto-resume status           상태 + 최근 이력
+
+  ca keep-alive enable [times]    5시간 리셋 활성화
+  ca keep-alive disable           비활성화
+  ca keep-alive status            상태
+
   # 일회성 예약
-  ca <time> 'prompt'                      # 현재 디렉터리에서 새 세션
-  ca <time> <directory> 'prompt'          # 지정 디렉터리에서 새 세션
-  ca <time> <session-id> 'prompt'         # 기존 세션 재개
+  ca at <time> "prompt"                    현재 디렉터리에서 새 세션
+  ca at <time> -d <dir> "prompt"           지정 디렉터리
+  ca at <time> -s <session-id> "prompt"    세션 재개
+  ca at <time> -H "prompt"                 헤드리스 모드
+  ca at <time> -H -q "prompt"              헤드리스 (출력 폐기)
 
   # 반복 예약
-  ca -r <schedule> <time> 'prompt'              # 현재 디렉터리에서 반복
-  ca -r <schedule> <time> <directory> 'prompt'  # 지정 디렉터리에서 반복
+  ca every <schedule> <time> "prompt"
+  ca every <schedule> <time> -d <dir> "prompt"
+  ca every <schedule> <time> -H -q "prompt"
 
   # 관리
-  ca --list                              # 예약 목록
-  ca --cancel <job-id>                   # 예약 취소
-  ca --cancel all                        # 일회성 예약 모두 취소
-  ca --modify <job-id>                   # 프롬프트 수정 (에디터)
-  ca --modify <job-id> 'new-prompt'      # 프롬프트 직접 변경
-  ca --time <job-id> <time>              # 실행 시각 변경
-  ca --upgrade                           # 기존 작업 업그레이드
+  ca list                         예약 목록 (인덱스 번호 포함)
+  ca show <id|#index>             작업 상세
+  ca cancel <id|#index|all>       취소
+  ca edit <id|#index> ["prompt"]  프롬프트 수정
+  ca reschedule <id|#index> <time>  시간 변경
 
-Arguments:
-  time            실행 시각 ( HH:MM | +Nm | +Nh | +Nd )
-                  반복 시 쉼표로 여러 시각: 07:00,12:00,17:00
-  schedule        반복 주기: daily, weekday, weekend, 또는 요일 (mon,wed,fri)
-  session-id      claude 세션 ID (재개 시, 일회성만)
-  directory       새 세션을 실행할 디렉터리 (절대경로, /로 시작)
-  prompt          작업 지시
+  # 설정
+  ca setup                        초기 설정 (인터랙티브)
+  ca teardown                     전체 정리 (언인스톨 전)
+  ca upgrade                      기존 작업 업그레이드
+  ca                              상태 요약
+
+Time:
+  HH:MM       절대 시간 (다음 도래)
+  +Nm         N분 후
+  +Nh         N시간 후
+  +Nd         N일 후
+  HH:MM,HH:MM  복수 시간 (반복만)
 
 Schedule:
-  daily           매일
+  day / daily     매일
   weekday         평일 (월-금)
   weekend         주말 (토-일)
-  mon,tue,...     특정 요일 (sun,mon,tue,wed,thu,fri,sat)
+  mon,wed,fri     특정 요일
 
-Options:
-  -r, --repeat    반복 예약
-  -H, --headless  헤드리스 모드 (터미널 없이 claude -p 실행)
-  -q, --quiet     출력 폐기 (-H와 함께 사용)
-  -l, --list      예약 목록
-  -c, --cancel    예약 취소
-  -m, --modify    프롬프트 수정
-  -t, --time      실행 시각 변경
-  -u, --upgrade   기존 작업 업그레이드
-  -S, --setup     pmset 잠자기 해제 권한 설정
-  -V, --version   버전 표시
-  -h, --help      도움말
+Flags:
+  -d <dir>      작업 디렉터리 (절대 경로)
+  -s <sid>      세션 재개 (일회성만)
+  -H            헤드리스 모드 (터미널 없이 실행)
+  -q            출력 폐기 (-H와 함께)
 
 Environment:
-  CLAUDE_AT_TERMINAL   터미널 앱 (Terminal, iTerm2)     [기본: Terminal]
-  CLAUDE_AT_FLAGS      claude CLI 추가 플래그           [기본: 없음]
-  CLAUDE_AT_STORE      작업 저장 디렉터리               [기본: ~/.claude-at]
-  CLAUDE_AT_LANG       표시 언어 (en, ko)               [기본: 자동 감지]
-
-Note:
-  잠자기 해제(pmset wake)는 덮개가 열려있거나 외부 모니터가 연결된
-  상태에서만 정상 작동합니다. 덮개가 닫힌 채 외부 모니터 없이는
-  하드웨어는 깨어나지만 터미널 창을 열 수 없어 실행이 실패합니다.
-  헤드리스 모드(-H)에서는 터미널이 열리지 않으므로 덮개가 닫힌
-  상태에서도 실행 가능합니다.
+  CLAUDE_AT_TERMINAL           터미널 앱 (Terminal, iTerm2)   [기본: Terminal]
+  CLAUDE_AT_FLAGS              claude CLI 추가 플래그         [기본: 없음]
+  CLAUDE_AT_STORE              작업 저장 디렉터리             [기본: ~/.claude-at]
+  CLAUDE_AT_LANG               표시 언어 (en, ko)             [기본: 자동 감지]
+  CLAUDE_AT_RESUME_PROMPT      자동 재개 프롬프트 커스터마이즈
+  CLAUDE_AT_RESUME_BUFFER_SECS 리셋 시간 버퍼 (초)           [기본: 300]
 
 Examples:
-  ca 03:00 "Write unit tests"                           # 현재 폴더에서 새 세션
-  ca +30m /Users/dev/myapp "Refactor code"              # 지정 폴더에서 새 세션
-  ca +3h abc-123-def "Continue analysis"                # 세션 재개
-  ca +1d "Run weekly cleanup"                           # 1일 후 실행
-  ca -r daily 07:00 "Check status"                      # 매일 7시
-  ca -r weekday 09:00 "Standup summary"                 # 평일 9시
-  ca -r mon,wed,fri 14:00 /Users/dev/app "Code review"  # 월수금 14시
-  ca -H +30m "Review PR"                               # 헤드리스 일회성
-  ca -H -r daily 09:00 "Check status"                  # 헤드리스 반복
-  ca -H -q +1h "Background task"                       # 헤드리스 (출력 폐기)
-
-Requires: bash 3.2+, zsh (interactive prompt editing)
+  ca at 03:00 "Write unit tests"                   새 세션 예약
+  ca at +30m -d /Users/dev/app "Refactor"          지정 디렉터리
+  ca at +3h -s abc-123-def "Continue"              세션 재개
+  ca every day 07:00 "Check status"                매일 7시
+  ca every weekday 09:00 "Standup summary"         평일 9시
+  ca at +30m -H "Review PR"                        헤드리스
+  ca at +1h -H -q "Background task"                헤드리스 (출력 폐기)
+  ca auto-resume enable                            자동 재개 활성화
+  ca keep-alive enable                             5시간 리셋 활성화
 HELP
     else
         cat <<'HELP'
-claude-at, ca — schedule Claude Code sessions via macOS launchd
+claude-at, ca — Claude Code session continuity manager
 
 Usage:
-  # One-time
-  ca <time> 'prompt'                      # new session in current dir
-  ca <time> <directory> 'prompt'          # new session in specified dir
-  ca <time> <session-id> 'prompt'         # resume existing session
+  # Core features
+  ca auto-resume enable           enable auto-resume
+  ca auto-resume disable          disable
+  ca auto-resume status           status + recent history
 
-  # Recurring
-  ca -r <schedule> <time> 'prompt'              # repeat in current dir
-  ca -r <schedule> <time> <directory> 'prompt'  # repeat in specified dir
+  ca keep-alive enable [times]    enable 5h timer reset
+  ca keep-alive disable           disable
+  ca keep-alive status            status
+
+  # One-time scheduling
+  ca at <time> "prompt"                    new session in current dir
+  ca at <time> -d <dir> "prompt"           in specified dir
+  ca at <time> -s <session-id> "prompt"    resume session
+  ca at <time> -H "prompt"                 headless mode
+  ca at <time> -H -q "prompt"              headless, discard output
+
+  # Recurring scheduling
+  ca every <schedule> <time> "prompt"
+  ca every <schedule> <time> -d <dir> "prompt"
+  ca every <schedule> <time> -H -q "prompt"
 
   # Management
-  ca --list                              # list all jobs
-  ca --cancel <job-id>                   # cancel a job
-  ca --cancel all                        # cancel all one-time jobs
-  ca --modify <job-id>                   # edit prompt (editor)
-  ca --modify <job-id> 'new-prompt'      # change prompt directly
-  ca --time <job-id> <time>              # reschedule
-  ca --upgrade                           # upgrade existing jobs
+  ca list                         list jobs (with index numbers)
+  ca show <id|#index>             job details
+  ca cancel <id|#index|all>       cancel
+  ca edit <id|#index> ["prompt"]  modify prompt
+  ca reschedule <id|#index> <time>  change time
 
-Arguments:
-  time            execution time ( HH:MM | +Nm | +Nh | +Nd )
-                  multiple times for recurring: 07:00,12:00,17:00
-  schedule        recurrence: daily, weekday, weekend, or days (mon,wed,fri)
-  session-id      Claude session ID (resume only, one-time only)
-  directory       working directory (absolute path, starts with /)
-  prompt          task instruction
+  # Settings
+  ca setup                        initial setup (interactive)
+  ca teardown                     full cleanup (before uninstall)
+  ca upgrade                      upgrade existing jobs
+  ca                              status summary
+
+Time:
+  HH:MM       absolute time (next occurrence)
+  +Nm         in N minutes
+  +Nh         in N hours
+  +Nd         in N days
+  HH:MM,HH:MM  multiple times (recurring only)
 
 Schedule:
-  daily           every day
+  day / daily     every day
   weekday         Mon-Fri
   weekend         Sat-Sun
-  mon,tue,...     specific days (sun,mon,tue,wed,thu,fri,sat)
+  mon,wed,fri     specific days
 
-Options:
-  -r, --repeat    recurring schedule
-  -H, --headless  headless mode (run claude -p without terminal)
-  -q, --quiet     discard output (use with -H)
-  -l, --list      list jobs
-  -c, --cancel    cancel job
-  -m, --modify    modify prompt
-  -t, --time      change schedule time
-  -u, --upgrade   upgrade existing jobs
-  -S, --setup     configure pmset wake permissions
-  -V, --version   show version
-  -h, --help      show this help
+Flags:
+  -d <dir>      working directory (absolute path)
+  -s <sid>      resume session (one-time only)
+  -H            headless mode (no terminal)
+  -q            discard output (use with -H)
 
 Environment:
-  CLAUDE_AT_TERMINAL   terminal app (Terminal, iTerm2)   [default: Terminal]
-  CLAUDE_AT_FLAGS      extra flags for claude CLI        [default: none]
-  CLAUDE_AT_STORE      job storage directory             [default: ~/.claude-at]
-  CLAUDE_AT_LANG       display language (en, ko)         [default: auto-detect]
-
-Note:
-  Wake-from-sleep (pmset wake) requires the lid to be open or an external
-  monitor connected. With the lid closed and no display, the hardware wakes
-  but the terminal window cannot open, so the job will fail.
-  Headless mode (-H) does not open a terminal, so it can run even
-  with the lid closed.
+  CLAUDE_AT_TERMINAL           terminal app (Terminal, iTerm2)   [default: Terminal]
+  CLAUDE_AT_FLAGS              extra flags for claude CLI        [default: none]
+  CLAUDE_AT_STORE              job storage directory             [default: ~/.claude-at]
+  CLAUDE_AT_LANG               display language (en, ko)         [default: auto-detect]
+  CLAUDE_AT_RESUME_PROMPT      customize auto-resume prompt
+  CLAUDE_AT_RESUME_BUFFER_SECS buffer after reset time (secs)   [default: 300]
 
 Examples:
-  ca 03:00 "Write unit tests"                           # new session at 3am
-  ca +30m /Users/dev/myapp "Refactor code"              # in 30 minutes
-  ca +3h abc-123-def "Continue analysis"                # resume session
-  ca +1d "Run weekly cleanup"                           # in 1 day
-  ca -r daily 07:00 "Check status"                      # daily at 7am
-  ca -r weekday 09:00 "Standup summary"                 # weekdays at 9am
-  ca -r mon,wed,fri 14:00 /Users/dev/app "Code review"  # MWF at 2pm
-  ca -H +30m "Review PR"                               # headless one-time
-  ca -H -r daily 09:00 "Check status"                  # headless recurring
-  ca -H -q +1h "Background task"                       # headless, discard output
-
-Requires: bash 3.2+, zsh (interactive prompt editing)
+  ca at 03:00 "Write unit tests"                   schedule new session
+  ca at +30m -d /Users/dev/app "Refactor"          in specified dir
+  ca at +3h -s abc-123-def "Continue"              resume session
+  ca every day 07:00 "Check status"                daily at 7am
+  ca every weekday 09:00 "Standup summary"         weekdays at 9am
+  ca at +30m -H "Review PR"                        headless one-time
+  ca at +1h -H -q "Background task"                headless, discard output
+  ca auto-resume enable                            enable auto-resume
+  ca keep-alive enable                             enable 5h timer reset
 HELP
     fi
     exit 0
