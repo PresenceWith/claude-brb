@@ -1138,10 +1138,10 @@ list_jobs() {
         echo "$(_t "(no jobs)" "(예약 없음)")"
     fi
     echo ""
-    echo "$(_t "Modify prompt:" "프롬프트 수정:") ca -m <JOB ID>"
-    echo "$(_t "Change time: " "시간 변경:   ") ca -t <JOB ID> <TIME>"
-    echo "$(_t "Cancel job:  " "예약 취소:   ") ca -c <JOB ID> | ca -c all"
-    exit 0
+    echo "$(_t "Modify prompt:" "프롬프트 수정:") ca edit <JOB ID>"
+    echo "$(_t "Change time: " "시간 변경:   ") ca reschedule <JOB ID> <TIME>"
+    echo "$(_t "Cancel job:  " "예약 취소:   ") ca cancel <JOB ID> | ca cancel all"
+    return 0
 }
 
 # --- cancel all (one-time only, keeps repeat jobs) ---
@@ -1170,8 +1170,8 @@ cancel_all_jobs() {
 
     if [ "$total_once" -eq 0 ]; then
         echo "$(_t "(no one-time jobs)" "(일회성 예약 없음)")"
-        [ "$total_repeat" -gt 0 ] && echo "$(_t "${total_repeat} repeat job(s) kept (cancel individually: ca -c <JOB ID>)" "반복 예약 ${total_repeat}개는 유지됨 (개별 취소: ca -c <JOB ID>)")"
-        exit 0
+        [ "$total_repeat" -gt 0 ] && echo "$(_t "${total_repeat} repeat job(s) kept (cancel individually: ca cancel <JOB ID>)" "반복 예약 ${total_repeat}개는 유지됨 (개별 취소: ca cancel <JOB ID>)")"
+        return 0
     fi
 
     # Interactive confirmation
@@ -1181,7 +1181,7 @@ cancel_all_jobs() {
         read -r confirm
         case "$confirm" in
             y|Y|yes|YES) ;;
-            *) echo "$(_t "Cancelled." "취소됨.")"; exit 0 ;;
+            *) echo "$(_t "Cancelled." "취소됨.")"; return 0 ;;
         esac
     fi
 
@@ -1225,9 +1225,9 @@ cancel_all_jobs() {
     # Clean up helper script only if no repeat jobs remain
     [ "$total_repeat" -eq 0 ] && rm -f "$STORE/_next_wake.sh"
     echo "$(_t "${count} job(s) cancelled" "총 ${count}개 예약 취소됨")"
-    [ "$total_repeat" -gt 0 ] && echo "$(_t "${total_repeat} repeat job(s) kept (cancel individually: ca -c <JOB ID>)" "반복 예약 ${total_repeat}개는 유지됨 (개별 취소: ca -c <JOB ID>)")"
+    [ "$total_repeat" -gt 0 ] && echo "$(_t "${total_repeat} repeat job(s) kept (cancel individually: ca cancel <JOB ID>)" "반복 예약 ${total_repeat}개는 유지됨 (개별 취소: ca cancel <JOB ID>)")"
     $wake_fail && _err "$(_t "Warning: some pmset wake cancellations require admin privileges" "경고: 일부 pmset wake 취소에 관리자 권한이 필요합니다")"
-    exit 0
+    return 0
 }
 
 # --- cancel individual job ---
@@ -1239,8 +1239,8 @@ cancel_job() {
     local label="${LABEL_PREFIX}.${jid}"
 
     if [ ! -f "${PLIST_DIR}/${label}.plist" ] && [ ! -f "$STORE/${jid}.sh" ]; then
-        _err "$(_t "Error: job not found (see 'ca -l')" "Error: 해당 Job ID를 찾을 수 없습니다 ('ca -l' 참조)"): ${jid}"
-        exit 1
+        _err "$(_t "Error: job not found (see 'ca list')" "Error: 해당 Job ID를 찾을 수 없습니다 ('ca list' 참조)"): ${jid}"
+        return 1
     fi
 
     launchctl bootout "gui/$(id -u)/${label}" 2>/dev/null || true
@@ -1264,7 +1264,7 @@ cancel_job() {
         rm -f "$STORE/.wake-${jid}"
     fi
     echo "$(_t "Cancelled:" "취소됨:") ${jid}"
-    exit 0
+    return 0
 }
 
 # --- modify prompt ---
@@ -1280,13 +1280,13 @@ modify_job() {
     local runner="$STORE/${jid}.sh"
 
     if [ ! -f "$runner" ]; then
-        _err "$(_t "Error: job not found (see 'ca -l')" "Error: 해당 Job ID를 찾을 수 없습니다 ('ca -l' 참조)"): ${jid}"
-        exit 1
+        _err "$(_t "Error: job not found (see 'ca list')" "Error: 해당 Job ID를 찾을 수 없습니다 ('ca list' 참조)"): ${jid}"
+        return 1
     fi
 
     if [ ! -f "$meta_file" ] || [ ! -f "$prompt_file" ]; then
         _err "$(_t "Error: metadata missing. Run 'ca --upgrade' first." "Error: 메타데이터 파일이 없습니다. 'ca --upgrade'를 먼저 실행하세요.")"
-        exit 1
+        return 1
     fi
 
     local old_prompt
@@ -1301,11 +1301,11 @@ modify_job() {
         display_prompt=$(<"$prompt_file")
         edited=$(CA_OLD="$display_prompt" CA_VP="$vared_prompt" zsh -c 'p="$CA_OLD"; vared -p "$CA_VP" p </dev/tty 2>/dev/tty; printf "%s" "$p"') || {
             _err "$(_t "Error: prompt editing failed" "Error: 프롬프트 편집 실패")"
-            exit 1
+            return 1
         }
         if [ -z "$edited" ]; then
             _err "$(_t "Error: empty prompt not allowed" "Error: 빈 프롬프트는 허용되지 않습니다")"
-            exit 1
+            return 1
         fi
         printf '%s' "$edited" | _atomic_write "$prompt_file"
     fi
@@ -1315,7 +1315,7 @@ modify_job() {
 
     if [ "$PROMPT" = "$old_prompt" ]; then
         echo "$(_t "No changes" "변경 사항 없음")"
-        exit 0
+        return 0
     fi
 
     _generate_exec "$jid"
@@ -1324,7 +1324,7 @@ modify_job() {
     echo "$(_t "Prompt modified:" "프롬프트 수정 완료:") ${jid}"
     echo "$(_t "Old:" "이전:") ${old_prompt:0:80}"
     echo "$(_t "New:" "변경:") ${PROMPT:0:80}"
-    exit 0
+    return 0
 }
 
 # --- reschedule job ---
@@ -1332,7 +1332,7 @@ retime_job() {
     local jid="$1"
     if [ -z "${2:-}" ]; then
         _err "$(_t "Error: time required (HH:MM, +30m, +2h, +1d)" "Error: 시간이 필요합니다 (HH:MM, +30m, +2h, +1d)")"
-        exit 1
+        return 1
     fi
     local time_str="$2"
 
@@ -1344,13 +1344,13 @@ retime_job() {
     local plist="${PLIST_DIR}/${label}.plist"
 
     if [ ! -f "$runner" ]; then
-        _err "$(_t "Error: job not found (see 'ca -l')" "Error: 해당 Job ID를 찾을 수 없습니다 ('ca -l' 참조)"): ${jid}"
-        exit 1
+        _err "$(_t "Error: job not found (see 'ca list')" "Error: 해당 Job ID를 찾을 수 없습니다 ('ca list' 참조)"): ${jid}"
+        return 1
     fi
 
     if [ ! -f "$meta_file" ]; then
         _err "$(_t "Error: metadata missing. Run 'ca --upgrade' first." "Error: 메타데이터 파일이 없습니다. 'ca --upgrade'를 먼저 실행하세요.")"
-        exit 1
+        return 1
     fi
 
     local META_TYPE="" META_MODE="" META_DIR="" META_SID="" META_FLAGS=""
@@ -1364,8 +1364,8 @@ retime_job() {
     if [ "$meta_type" = "repeat" ]; then
         if [[ "$time_str" == +* ]]; then
             _err "$(_t "Error: repeat jobs cannot use relative time (+Nm, +Nh, +Nd). Use HH:MM format." "Error: 반복 작업은 상대 시간(+Nm, +Nh, +Nd) 사용 불가. HH:MM 형식을 사용하세요.")"
-            _err "$(_t "Example:" "예:") ca -t ${jid} 08:00,13:00"
-            exit 1
+            _err "$(_t "Example:" "예:") ca reschedule ${jid} 08:00,13:00"
+            return 1
         fi
 
         validate_times "$time_str"
@@ -1383,18 +1383,18 @@ retime_job() {
         _write_plist_repeat "$label" "$runner" "$jid" "$weekdays" "$time_str"
         if ! launchctl bootstrap "gui/$(id -u)" "$plist"; then
             _err "$(_t "Error: launchctl bootstrap failed" "Error: launchctl bootstrap 실패")"
-            exit 1
+            return 1
         fi
 
         _schedule_next_repeat_wake "$jid" "$weekdays" "$time_str"
 
         echo "$(_t "Rescheduled:" "시간 변경 완료:") ${META_SCHEDULE} ${old_times} → ${META_SCHEDULE} ${time_str} (Job ID: ${jid})"
-        exit 0
+        return 0
     fi
 
     # ========== one-time job reschedule ==========
     local target
-    target=$(_parse_time_to_epoch "$time_str") || exit 1
+    target=$(_parse_time_to_epoch "$time_str") || return 1
 
     local target_fmt target_min target_hour target_day target_month target_ymd
     target_fmt=$(date -r "$target" '+%m/%d %H:%M')
@@ -1416,7 +1416,7 @@ retime_job() {
     _write_plist_once "$label" "$runner" "$jid" "$target_month" "$target_day" "$target_hour" "$target_min"
     if ! launchctl bootstrap "gui/$(id -u)" "$plist"; then
         _err "$(_t "Error: launchctl bootstrap failed" "Error: launchctl bootstrap 실패")"
-        exit 1
+        return 1
     fi
 
     if [ -f "$STORE/.wake-${jid}" ]; then
@@ -1434,7 +1434,7 @@ retime_job() {
     _try_schedule_wake "$wake_fmt" "$STORE/.wake-${jid}"
 
     echo "$(_t "Rescheduled:" "시간 변경 완료:") ${old_fmt} → ${target_fmt} (Job ID: ${jid})"
-    exit 0
+    return 0
 }
 
 # ===================================================================
@@ -1507,10 +1507,10 @@ fi
 case "${1:-}" in
     -h|--help)    show_help ;;
     -V|--version) echo "claude-at $VERSION"; exit 0 ;;
-    -l|--list)    list_jobs ;;
-    -c|--cancel)  [ -z "${2:-}" ] && { _err "$(_t "Error: job-id required" "Error: Job ID가 필요합니다"): ca -c <job-id>"; exit 1; }; cancel_job "$2" ;;
-    -m|--modify)  [ -z "${2:-}" ] && { _err "$(_t "Error: job-id required" "Error: Job ID가 필요합니다"): ca -m <job-id>"; exit 1; }; modify_job "$2" "${3:-}" ;;
-    -t|--time)    [ -z "${2:-}" ] && { _err "$(_t "Error: job-id required" "Error: Job ID가 필요합니다"): ca -t <job-id> <time>"; exit 1; }; retime_job "$2" "${3:-}" ;;
+    -l|--list)    list_jobs; exit $? ;;
+    -c|--cancel)  [ -z "${2:-}" ] && { _err "$(_t "Error: job-id required" "Error: Job ID가 필요합니다"): ca cancel <job-id>"; exit 1; }; cancel_job "$2"; exit $? ;;
+    -m|--modify)  [ -z "${2:-}" ] && { _err "$(_t "Error: job-id required" "Error: Job ID가 필요합니다"): ca edit <job-id>"; exit 1; }; modify_job "$2" "${3:-}"; exit $? ;;
+    -t|--time)    [ -z "${2:-}" ] && { _err "$(_t "Error: job-id required" "Error: Job ID가 필요합니다"): ca reschedule <job-id> <time>"; exit 1; }; retime_job "$2" "${3:-}"; exit $? ;;
     -u|--upgrade) upgrade_all_jobs ;;
     -S|--setup)   _setup_pmset_sudo; exit $? ;;
     -r|--repeat)  ;;  # handled below in repeat mode
