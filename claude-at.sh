@@ -739,6 +739,104 @@ _auto_resume_cmd() {
     esac
 }
 
+_keep_alive_cmd() {
+    local action="${1:-status}"
+    case "$action" in
+        enable)
+            local times="${2:-00:01,05:02,10:03,15:04,20:05}"
+
+            # Check if already active
+            if [ -f "$STORE/rpt.keep-alive.meta" ] && [ -f "$STORE/rpt.keep-alive.sh" ]; then
+                echo "$(_t "keep-alive is already enabled." "keep-alive가 이미 활성화되어 있습니다.")"
+                return 0
+            fi
+
+            # Check pmset setup
+            if ! _can_pmset_sudo; then
+                echo "$(_t "wake-from-sleep requires pmset permissions." "wake-from-sleep에 pmset 권한이 필요합니다.")"
+                if [ -t 0 ]; then
+                    printf "$(_t "Set up now? [Y/n] " "지금 설정할까요? [Y/n] ")"
+                    local confirm; read -r confirm
+                    case "${confirm:-Y}" in
+                        n|N|no|NO) echo "$(_t "⚠ keep-alive will not work while Mac is asleep." "⚠ Mac이 잠든 상태에서는 keep-alive가 실행되지 않습니다.")" ;;
+                        *) _setup_pmset_sudo ;;
+                    esac
+                fi
+            fi
+
+            # Create keep-alive job using internal scheduling
+            local JOB_ID="rpt.keep-alive"
+            local RPT_DIR="/tmp"
+            local RPT_PROMPT="Reply with OK"
+            local RPT_WEEKDAYS="0,1,2,3,4,5,6"  # every day
+
+            mkdir -p "$STORE"
+
+            printf '%s' "$RPT_PROMPT" | _atomic_write "$STORE/${JOB_ID}.prompt"
+            {
+                printf "META_TYPE='repeat'\n"
+                printf "META_MODE='new'\n"
+                printf "META_DIR='%s'\n" "$RPT_DIR"
+                printf "META_SID=''\n"
+                printf "META_FLAGS=''\n"
+                printf "META_SCHEDULE='day'\n"
+                printf "META_TIMES='%s'\n" "$times"
+                printf "META_WEEKDAYS='%s'\n" "$RPT_WEEKDAYS"
+                printf "META_HEADLESS='yes'\n"
+                printf "META_QUIET='yes'\n"
+                printf "META_SUBTYPE='keep-alive'\n"
+            } | _atomic_write "$STORE/${JOB_ID}.meta"
+
+            _ensure_wake_helper
+            _generate_exec "$JOB_ID"
+            _generate_runner "$JOB_ID"
+
+            local label="${LABEL_PREFIX}.${JOB_ID}"
+            local runner="$STORE/${JOB_ID}.sh"
+            mkdir -p "$PLIST_DIR"
+            _write_plist_repeat "$label" "$runner" "$JOB_ID" "$RPT_WEEKDAYS" "$times"
+
+            if ! launchctl bootstrap "gui/$(id -u)" "${PLIST_DIR}/${label}.plist" 2>/dev/null; then
+                # May already be loaded — try bootout first then reload
+                launchctl bootout "gui/$(id -u)/${label}" 2>/dev/null || true
+                launchctl bootstrap "gui/$(id -u)" "${PLIST_DIR}/${label}.plist" || {
+                    _err "Error: failed to register keep-alive job"
+                    return 1
+                }
+            fi
+
+            _schedule_next_repeat_wake "$JOB_ID" "$RPT_WEEKDAYS" "$times"
+            echo "$(_t "✅ keep-alive enabled" "✅ keep-alive 활성화됨") ($times)"
+            ;;
+        disable)
+            local JOB_ID="rpt.keep-alive"
+            if [ -f "$STORE/${JOB_ID}.sh" ]; then
+                cancel_job "$JOB_ID"
+                echo "$(_t "✅ keep-alive disabled" "✅ keep-alive 비활성화됨")"
+            else
+                echo "$(_t "keep-alive is not active." "keep-alive가 활성화되어 있지 않습니다.")"
+            fi
+            ;;
+        status)
+            if [ -f "$STORE/rpt.keep-alive.meta" ] && [ -f "$STORE/rpt.keep-alive.sh" ]; then
+                local times
+                times=$(_read_meta "$STORE/rpt.keep-alive.meta" META_TIMES)
+                echo "$(_t "keep-alive: enabled" "keep-alive: 활성") ($times)"
+
+                # Last execution from runlog
+                if [ -f "$STORE/rpt.keep-alive.runlog" ]; then
+                    local last_line
+                    last_line=$(tail -1 "$STORE/rpt.keep-alive.runlog")
+                    echo "  $(_t "Last run:" "마지막 실행:") $last_line"
+                fi
+            else
+                echo "$(_t "keep-alive: disabled" "keep-alive: 비활성")"
+            fi
+            ;;
+        *) _err "Usage: ca keep-alive {enable|disable|status} [times]"; return 1 ;;
+    esac
+}
+
 # Try to schedule pmset wake (auto-setup → sudo -n → interactive fallback)
 _try_schedule_wake() {
     local wake_fmt="$1"
@@ -1773,6 +1871,7 @@ fi
 case "${1:-}" in
     _hook-auto-resume) _hook_auto_resume; exit $? ;;
     auto-resume) shift; _auto_resume_cmd "${1:-status}"; exit 0 ;;
+    keep-alive) shift; _keep_alive_cmd "$@"; exit 0 ;;
     _test-settings-add)    _settings_json_add_hook "$2"; exit 0 ;;
     _test-settings-remove) _settings_json_remove_hook; exit 0 ;;
     -h|--help)    show_help ;;
