@@ -4,9 +4,9 @@ set -euo pipefail
 PASS=0 FAIL=0
 assert() { if eval "$2"; then PASS=$((PASS+1)); else FAIL=$((FAIL+1)); echo "FAIL: $1"; fi; }
 
-CA="$(cd "$(dirname "$0")" && pwd)/claude-at.sh"
+CA="$(cd "$(dirname "$0")" && pwd)/claude-brb.sh"
 TEST_STORE=$(mktemp -d)
-export CLAUDE_AT_STORE="$TEST_STORE"
+export CLAUDE_BRB_STORE="$TEST_STORE"
 
 # --- Version ---
 output=$(bash "$CA" version 2>&1)
@@ -17,10 +17,10 @@ assert "ca --version compat" "echo '$output' | grep -q '0.2.0'"
 
 # --- Help ---
 output=$(bash "$CA" help 2>&1)
-assert "ca help shows usage" "echo '$output' | grep -q 'ca at'"
+assert "ca help shows usage" "echo '$output' | grep -q 'brb at'"
 
 output=$(bash "$CA" --help 2>&1)
-assert "ca --help compat" "echo '$output' | grep -q 'ca at'"
+assert "ca --help compat" "echo '$output' | grep -q 'brb at'"
 
 # --- Status summary (no args) ---
 output=$(bash "$CA" 2>&1)

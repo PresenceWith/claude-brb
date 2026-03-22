@@ -38,10 +38,10 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
           # Update formula
-          cat > Formula/claude-at.rb << FORMULA
-          class ClaudeAt < Formula
+          cat > Formula/claude-brb.rb << FORMULA
+          class ClaudeBrb < Formula
             desc "Schedule Claude Code CLI sessions via macOS launchd"
-            homepage "https://github.com/PresenceWith/claude-at"
+            homepage "https://github.com/PresenceWith/claude-brb"
             url "${TARBALL_URL}"
             sha256 "${SHA256}"
             license "MIT"
@@ -49,13 +49,13 @@ jobs:
             depends_on :macos
 
             def install
-              bin.install "claude-at.sh" => "claude-at"
-              bin.install_symlink "claude-at" => "ca"
+              bin.install "claude-brb.sh" => "claude-brb"
+              bin.install_symlink "claude-brb" => "brb"
             end
 
             def caveats
               <<~EOS
-                claude-at requires the Claude Code CLI to be installed.
+                claude-brb requires the Claude Code CLI to be installed.
                 Install it via: npm install -g @anthropic-ai/claude-code
 
                 If you have an existing alias for 'ca' in your .zshrc or .bashrc,
@@ -64,14 +64,14 @@ jobs:
             end
 
             test do
-              assert_match "claude-at", shell_output("#{bin}/claude-at --version")
+              assert_match "claude-brb", shell_output("#{bin}/claude-brb --version")
             end
           end
           FORMULA
 
           # Remove leading whitespace from heredoc
-          sed -i 's/^          //' Formula/claude-at.rb
+          sed -i 's/^          //' Formula/claude-brb.rb
 
-          git add Formula/claude-at.rb
-          git commit -m "Update claude-at to ${VERSION}"
+          git add Formula/claude-brb.rb
+          git commit -m "Update claude-brb to ${VERSION}"
           git push

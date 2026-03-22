@@ -4,9 +4,9 @@ set -euo pipefail
 PASS=0 FAIL=0
 assert() { if eval "$2"; then PASS=$((PASS+1)); else FAIL=$((FAIL+1)); echo "FAIL: $1"; fi; }
 
-CA="$(cd "$(dirname "$0")" && pwd)/claude-at.sh"
+CA="$(cd "$(dirname "$0")" && pwd)/claude-brb.sh"
 TEST_STORE=$(mktemp -d)
-export CLAUDE_AT_STORE="$TEST_STORE"
+export CLAUDE_BRB_STORE="$TEST_STORE"
 
 # Test 1: empty stdin doesn't crash
 echo '' | bash "$CA" _hook-auto-resume 2>/dev/null || true

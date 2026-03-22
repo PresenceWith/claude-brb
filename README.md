@@ -1,10 +1,11 @@
-# claude-at
+# claude-brb
 
-Schedule [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI sessions on macOS using launchd.
+Be right back with Claude Code — schedule CLI sessions on macOS using launchd.
 
 - One-time or recurring schedules (daily, weekday, weekend, specific days)
-- Opens a Terminal window (or iTerm2) and runs Claude Code at the scheduled time
-- Wake-from-sleep support via `pmset` with automatic sudoers setup
+- Auto-resume on rate limits, keep-alive for 5-hour timer resets
+- Headless mode for background tasks (no terminal window)
+- Wake-from-sleep support via `pmset`
 - Session resumption by session ID
 - Bilingual output (English / Korean, auto-detected)
 
@@ -13,7 +14,6 @@ Schedule [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI sessi
 - **macOS** (uses launchd, AppleScript, BSD date)
 - **Claude Code CLI** (`claude` command in PATH)
 - **bash 3.2+** (ships with macOS)
-- **zsh** (ships with macOS; used for interactive prompt editing via `ca -m`)
 - **Terminal.app** or **iTerm2**
 
 ## Installation
@@ -21,20 +21,20 @@ Schedule [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI sessi
 ### Homebrew (Recommended)
 
 ```bash
-brew install PresenceWith/tap/claude-at
+brew install PresenceWith/tap/claude-brb
 ```
 
-This installs `claude-at` and `ca` (symlink) to your Homebrew prefix.
+This installs `claude-brb` and `brb` (symlink) to your Homebrew prefix.
 
 ### User-local
 
 ```bash
-git clone https://github.com/PresenceWith/claude-at.git
-cd claude-at
+git clone https://github.com/PresenceWith/claude-brb.git
+cd claude-brb
 make install-user
 ```
 
-This installs to `~/.local/bin/claude-at` with a `ca` symlink. Make sure `~/.local/bin` is in your `PATH`.
+This installs to `~/.local/bin/claude-brb` with a `brb` symlink. Make sure `~/.local/bin` is in your `PATH`.
 
 ### System-wide
 
@@ -42,71 +42,85 @@ This installs to `~/.local/bin/claude-at` with a `ca` symlink. Make sure `~/.loc
 sudo make install
 ```
 
-Installs to `/usr/local/bin/claude-at` with a `ca` symlink.
+Installs to `/usr/local/bin/claude-brb` with a `brb` symlink.
 
-### Manual
-
-```bash
-alias ca="/path/to/claude-at.sh"
-```
-
-### Post-install: Wake-from-sleep setup
-
-To ensure scheduled jobs run even when the Mac is asleep, configure passwordless `pmset` access:
+## Setup
 
 ```bash
-ca --setup
+brb setup
 ```
 
-This creates `/etc/sudoers.d/claude-at` granting your user passwordless access to `/usr/bin/pmset` only. Without this, jobs that fire while the Mac is asleep will be delayed until the next wake.
-
-> **Note**: Wake-from-sleep requires the **lid to be open** or an **external monitor connected**. With the lid closed and no display attached, the hardware wakes but the terminal window cannot open, so the job will fail.
+Interactive setup that configures:
+1. **Wake-from-sleep** — passwordless `pmset` access (`/etc/sudoers.d/claude-brb`)
+2. **Auto-resume** — automatically reschedules sessions after rate limits
+3. **Keep-alive** — resets the 5-hour usage timer periodically
 
 ## Quick Start
 
 ```bash
-# Schedule a session in 30 minutes
-ca +30m "Write unit tests for the auth module"
+# One-time session in 30 minutes
+brb at +30m "Write unit tests for the auth module"
 
-# Schedule at a specific time
-ca 03:00 /path/to/project "Refactor the database layer"
+# At a specific time, in a specific directory
+brb at 03:00 -d /path/to/project "Refactor the database layer"
 
-# Schedule in 1 day
-ca +1d "Run weekly cleanup"
+# Resume an existing session
+brb at +30m -s <session-id> "Continue where you left off"
+
+# Headless (no terminal window, runs in background)
+brb at +30m -H "Review PR"
 
 # Recurring: every weekday at 9am
-ca -r weekday 09:00 "Review overnight changes"
+brb every weekday 09:00 "Review overnight changes"
 
 # Recurring: daily at multiple times
-ca -r daily 07:00,12:00,17:00,22:00 "Check status"
+brb every daily 07:00,12:00,17:00 "Check status"
 
 # List all jobs
-ca -l
+brb list
+
+# Status summary
+brb
 ```
 
 ## Usage
 
 ```
-claude-at, ca — schedule Claude Code sessions via macOS launchd
+claude-brb, brb — be right back with Claude Code
 
-# One-time
-ca <time> 'prompt'                      # new session in current dir
-ca <time> <directory> 'prompt'          # new session in specified dir
-ca <time> <session-id> 'prompt'         # resume existing session
+# Core features
+brb auto-resume enable           enable auto-resume
+brb auto-resume disable          disable
+brb auto-resume status           status + recent history
 
-# Recurring
-ca -r <schedule> <time> 'prompt'
-ca -r <schedule> <time> <directory> 'prompt'
+brb keep-alive enable [times]    enable 5h timer reset
+brb keep-alive disable           disable
+brb keep-alive status            status
+
+# One-time scheduling
+brb at <time> "prompt"                    new session in current dir
+brb at <time> -d <dir> "prompt"           in specified dir
+brb at <time> -s <session-id> "prompt"    resume session
+brb at <time> -H "prompt"                 headless mode
+brb at <time> -H -q "prompt"              headless, discard output
+
+# Recurring scheduling
+brb every <schedule> <time> "prompt"
+brb every <schedule> <time> -d <dir> "prompt"
+brb every <schedule> <time> -H -q "prompt"
 
 # Management
-ca --list                               # list all jobs
-ca --cancel <job-id>                    # cancel a job
-ca --cancel all                         # cancel all one-time jobs (keeps recurring)
-ca --modify <job-id>                    # edit prompt interactively
-ca --modify <job-id> 'new-prompt'       # change prompt directly
-ca --time <job-id> <time>               # reschedule
-ca --upgrade                            # upgrade jobs from older versions
-ca --setup                              # configure pmset wake permissions
+brb list                         list jobs (with index numbers)
+brb show <id|#index>             job details
+brb cancel <id|#index|all>       cancel
+brb edit <id|#index> ["prompt"]  modify prompt
+brb reschedule <id|#index> <time>  change time
+
+# Settings
+brb setup                        initial setup (interactive)
+brb teardown                     full cleanup (before uninstall)
+brb upgrade                      upgrade existing jobs
+brb                              status summary
 ```
 
 ### Time Formats
@@ -128,59 +142,47 @@ ca --setup                              # configure pmset wake permissions
 | `weekend` | Saturday and Sunday |
 | `mon,wed,fri` | Specific days |
 
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `-d <dir>` | Working directory (absolute path) |
+| `-s <sid>` | Resume session (one-time only) |
+| `-H` | Headless mode (no terminal window) |
+| `-q` | Discard output (use with `-H`) |
+
 ## Configuration
 
 ### Environment Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `CLAUDE_AT_TERMINAL` | `Terminal` | Terminal app (`Terminal` or `iTerm2`) |
-| `CLAUDE_AT_FLAGS` | *(empty)* | Extra flags passed to `claude` CLI |
-| `CLAUDE_AT_STORE` | `~/.claude-at` | Job storage directory |
-| `CLAUDE_AT_LANG` | *(auto-detect)* | Display language (`en` or `ko`) |
-| `CLAUDE_AT_MIN_INTERVAL` | `120` | Minimum interval (seconds) between repeat job runs (dedup guard) |
+| `CLAUDE_BRB_TERMINAL` | `Terminal` | Terminal app (`Terminal` or `iTerm2`) |
+| `CLAUDE_BRB_FLAGS` | *(empty)* | Extra flags passed to `claude` CLI |
+| `CLAUDE_BRB_STORE` | `~/.claude-brb` | Job storage directory |
+| `CLAUDE_BRB_LANG` | *(auto-detect)* | Display language (`en` or `ko`) |
+| `CLAUDE_BRB_MIN_INTERVAL` | `120` | Minimum interval (seconds) between repeat job runs |
+| `CLAUDE_BRB_RESUME_PROMPT` | *(built-in)* | Custom auto-resume prompt |
+| `CLAUDE_BRB_RESUME_BUFFER_SECS` | `300` | Buffer after reset time (seconds) |
 
 ### Running with `--dangerously-skip-permissions`
 
-By default, scheduled sessions run **without** `--dangerously-skip-permissions`. To enable it:
-
 ```bash
-export CLAUDE_AT_FLAGS="--dangerously-skip-permissions"
-ca +30m "task that needs full permissions"
+export CLAUDE_BRB_FLAGS="--dangerously-skip-permissions"
+brb at +30m "task that needs full permissions"
 ```
 
-> **Warning**: This flag disables all permission checks in Claude Code. Scheduled sessions run unattended — use with caution. The flag is captured at job creation time and shown as `[!]` in `ca -l` output.
+> **Warning**: This flag disables all permission checks in Claude Code. Scheduled sessions run unattended — use with caution.
 
 ### Wake from Sleep
 
-The tool uses `pmset schedule wake` to wake the Mac before scheduled jobs. Run `ca --setup` to configure passwordless `pmset` access — this is required for recurring jobs to reliably wake the machine.
-
-**How it works:**
-
-1. When a job is created, `claude-at` schedules a `pmset wake` 2 minutes before the target time
-2. For recurring jobs, each run automatically schedules the wake for the next execution
-3. `ca --setup` creates `/etc/sudoers.d/claude-at` so that background wake scheduling works without a password
-
-**If `ca --setup` is not run:**
-
-- Job creation will prompt for your password (interactive fallback)
-- Background wake scheduling (between recurring runs) will silently fail
-- Jobs will still run if the machine happens to be awake, but will be delayed if asleep
-
-**Lid and display requirements:**
+`brb setup` configures passwordless `pmset` access. When a job is created, `claude-brb` schedules a `pmset wake` 2 minutes before the target time. For recurring jobs, each run automatically schedules the next wake.
 
 | State | Wake | Job runs |
 |-------|------|----------|
 | Lid open, asleep | Yes | Yes |
 | Lid closed + external monitor + power | Yes | Yes |
 | Lid closed, no external monitor | Yes | **No** — terminal cannot open |
-
-## Permissions
-
-On first use, macOS may prompt for:
-
-- **Automation permission**: Allows the script to open Terminal windows via AppleScript. Go to System Settings > Privacy & Security > Automation
-- **sudo** (one-time): `ca --setup` requires admin password to create the sudoers rule
 
 ## How It Works
 
@@ -190,35 +192,25 @@ On first use, macOS may prompt for:
    - Guards against duplicate runs within the minimum interval
    - Wakes the display with `caffeinate -u`
    - Displays a macOS notification
-   - Opens Terminal.app (or iTerm2) via AppleScript (with 3 retries)
+   - Opens Terminal.app (or iTerm2) via AppleScript
    - Runs an **exec script** inside the terminal that starts Claude Code with `caffeinate -i`
-3. For one-time jobs, the runner includes a **date guard** and the exec script cleans up all files after execution
+3. For one-time jobs, the exec script cleans up all files after execution
 4. For recurring jobs, a `_next_wake.sh` helper calculates and registers the next wake time
 
 ## Upgrading
 
-After updating `claude-at`, run `ca --upgrade` to regenerate runner scripts for existing jobs. This applies security improvements and updates the wake helper script.
+After updating `claude-brb`, run `brb upgrade` to regenerate runner scripts for existing jobs.
 
 ## Uninstall
 
 ```bash
-# Cancel all jobs first (one-time jobs)
-ca -c all
-# Check for remaining recurring jobs
-ca -l
-# Cancel any remaining recurring jobs individually
-ca -c <job-id>
+brb teardown                     # remove hooks, keep-alive, sudoers
+brb cancel all                   # cancel one-time jobs
+brb list                         # check for remaining recurring jobs
+brb cancel <job-id>              # cancel individually
 
-# Remove the binary (system-wide)
-sudo make uninstall
-# or (user-local)
-make uninstall-user
-
-# Optionally remove the sudoers rule
-sudo rm -f /etc/sudoers.d/claude-at
-
-# Optionally remove job data
-rm -rf ~/.claude-at
+sudo make uninstall              # or: make uninstall-user
+rm -rf ~/.claude-brb             # remove job data
 ```
 
 ## Troubleshooting
@@ -227,16 +219,16 @@ rm -rf ~/.claude-at
 macOS requires Automation permission. Go to System Settings > Privacy & Security > Automation and allow your terminal to control Terminal.app (or iTerm2).
 
 **Job didn't run (machine was asleep)**
-Run `ca --setup` to configure passwordless `pmset` access. Check `~/.claude-at/<job-id>.runlog` for `warn: pmset wake failed` entries. The lid must be open or an external monitor connected.
+Run `brb setup` to configure passwordless `pmset` access. Check `~/.claude-brb/<job-id>.runlog` for `warn: pmset wake failed` entries. The lid must be open or an external monitor connected.
 
 **Job ran late**
-Check if `pmset wake` was scheduled: `pmset -g sched`. If no `claude-at` wake entry exists, run `ca --setup` and then `ca --upgrade` to regenerate scripts.
+Check if `pmset wake` was scheduled: `pmset -g sched`. If no wake entry exists, run `brb setup` and then `brb upgrade` to regenerate scripts.
 
 **"bootstrap failed" when creating a job**
-The launchd agent may already be loaded. Run `ca -c <job-id>` to clean up, then recreate.
+The launchd agent may already be loaded. Run `brb cancel <job-id>` to clean up, then recreate.
 
 **Jobs from older versions can't be modified**
-Run `ca --upgrade` to add missing metadata fields and regenerate scripts.
+Run `brb upgrade` to add missing metadata fields and regenerate scripts.
 
 ## License
 

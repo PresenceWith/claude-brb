@@ -1,12 +1,12 @@
 #!/bin/bash
-# claude-at — schedule Claude Code CLI sessions via macOS launchd
+# claude-brb — be right back with Claude Code
 set -euo pipefail
 umask 077
 
 VERSION="0.2.0"
 
 # --- i18n: detect locale once, cache result ---
-_lang_code="${CLAUDE_AT_LANG:-${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}}"
+_lang_code="${CLAUDE_BRB_LANG:-${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}}"
 [[ "$_lang_code" == ko* ]] && _LANG_KO=1 || _LANG_KO=0
 _t() { if [ "$_LANG_KO" -eq 1 ]; then echo "$2"; else echo "$1"; fi; }
 _err() { echo "$@" >&2; }
@@ -35,66 +35,66 @@ MSG
 # --- configuration ---
 # Regex for safe path characters (used in validation functions)
 _SAFE_PATH_RE='^[a-zA-Z0-9/_. -]+$'
-STORE="${CLAUDE_AT_STORE:-$HOME/.claude-at}"
+STORE="${CLAUDE_BRB_STORE:-$HOME/.claude-brb}"
 # Validate store path characters (prevent injection into generated scripts/plist)
 if [[ ! "$STORE" =~ $_SAFE_PATH_RE ]]; then
-    _err "$(_t "Error: CLAUDE_AT_STORE contains unsupported characters" "Error: CLAUDE_AT_STORE에 지원되지 않는 문자 포함"): $STORE"
+    _err "$(_t "Error: CLAUDE_BRB_STORE contains unsupported characters" "Error: CLAUDE_BRB_STORE에 지원되지 않는 문자 포함"): $STORE"
     exit 1
 fi
-PLIST_DIR="$HOME/Library/LaunchAgents"
-LABEL_PREFIX="com.claude-at"
-CLAUDE_AT_TERMINAL="${CLAUDE_AT_TERMINAL:-Terminal}"
-CLAUDE_AT_FLAGS="${CLAUDE_AT_FLAGS:-}"
-CLAUDE_AT_MIN_INTERVAL="${CLAUDE_AT_MIN_INTERVAL:-120}"
-if ! [[ "$CLAUDE_AT_MIN_INTERVAL" =~ ^[1-9][0-9]*$ ]]; then
-    CLAUDE_AT_MIN_INTERVAL=120
+PLIST_DIR="${CLAUDE_BRB_PLIST_DIR:-$HOME/Library/LaunchAgents}"
+LABEL_PREFIX="com.claude-brb"
+CLAUDE_BRB_TERMINAL="${CLAUDE_BRB_TERMINAL:-Terminal}"
+CLAUDE_BRB_FLAGS="${CLAUDE_BRB_FLAGS:-}"
+CLAUDE_BRB_MIN_INTERVAL="${CLAUDE_BRB_MIN_INTERVAL:-120}"
+if ! [[ "$CLAUDE_BRB_MIN_INTERVAL" =~ ^[1-9][0-9]*$ ]]; then
+    CLAUDE_BRB_MIN_INTERVAL=120
 fi
 
 # --- validate terminal (prevent AppleScript injection) ---
-case "$CLAUDE_AT_TERMINAL" in
+case "$CLAUDE_BRB_TERMINAL" in
     Terminal|iTerm|iTerm2) ;;
-    *) _err "$(_t "Error: unsupported terminal" "Error: 지원하지 않는 터미널"): $CLAUDE_AT_TERMINAL (Terminal, iTerm, iTerm2)"; exit 1 ;;
+    *) _err "$(_t "Error: unsupported terminal" "Error: 지원하지 않는 터미널"): $CLAUDE_BRB_TERMINAL (Terminal, iTerm, iTerm2)"; exit 1 ;;
 esac
 
 show_help() {
     if [ "$_LANG_KO" -eq 1 ]; then
         cat <<'HELP'
-claude-at, ca — Claude Code 세션 연속성 관리 도구
+claude-brb, brb — Claude Code 세션 스케줄러
 
 Usage:
   # 핵심 기능
-  ca auto-resume enable           자동 재개 활성화
-  ca auto-resume disable          비활성화
-  ca auto-resume status           상태 + 최근 이력
+  brb auto-resume enable           자동 재개 활성화
+  brb auto-resume disable          비활성화
+  brb auto-resume status           상태 + 최근 이력
 
-  ca keep-alive enable [times]    5시간 리셋 활성화
-  ca keep-alive disable           비활성화
-  ca keep-alive status            상태
+  brb keep-alive enable [times]    5시간 리셋 활성화
+  brb keep-alive disable           비활성화
+  brb keep-alive status            상태
 
   # 일회성 예약
-  ca at <time> "prompt"                    현재 디렉터리에서 새 세션
-  ca at <time> -d <dir> "prompt"           지정 디렉터리
-  ca at <time> -s <session-id> "prompt"    세션 재개
-  ca at <time> -H "prompt"                 헤드리스 모드
-  ca at <time> -H -q "prompt"              헤드리스 (출력 폐기)
+  brb at <time> "prompt"                    현재 디렉터리에서 새 세션
+  brb at <time> -d <dir> "prompt"           지정 디렉터리
+  brb at <time> -s <session-id> "prompt"    세션 재개
+  brb at <time> -H "prompt"                 헤드리스 모드
+  brb at <time> -H -q "prompt"              헤드리스 (출력 폐기)
 
   # 반복 예약
-  ca every <schedule> <time> "prompt"
-  ca every <schedule> <time> -d <dir> "prompt"
-  ca every <schedule> <time> -H -q "prompt"
+  brb every <schedule> <time> "prompt"
+  brb every <schedule> <time> -d <dir> "prompt"
+  brb every <schedule> <time> -H -q "prompt"
 
   # 관리
-  ca list                         예약 목록 (인덱스 번호 포함)
-  ca show <id|#index>             작업 상세
-  ca cancel <id|#index|all>       취소
-  ca edit <id|#index> ["prompt"]  프롬프트 수정
-  ca reschedule <id|#index> <time>  시간 변경
+  brb list                         예약 목록 (인덱스 번호 포함)
+  brb show <id|#index>             작업 상세
+  brb cancel <id|#index|all>       취소
+  brb edit <id|#index> ["prompt"]  프롬프트 수정
+  brb reschedule <id|#index> <time>  시간 변경
 
   # 설정
-  ca setup                        초기 설정 (인터랙티브)
-  ca teardown                     전체 정리 (언인스톨 전)
-  ca upgrade                      기존 작업 업그레이드
-  ca                              상태 요약
+  brb setup                        초기 설정 (인터랙티브)
+  brb teardown                     전체 정리 (언인스톨 전)
+  brb upgrade                      기존 작업 업그레이드
+  brb                              상태 요약
 
 Time:
   HH:MM       절대 시간 (다음 도래)
@@ -116,62 +116,62 @@ Flags:
   -q            출력 폐기 (-H와 함께)
 
 Environment:
-  CLAUDE_AT_TERMINAL           터미널 앱 (Terminal, iTerm2)   [기본: Terminal]
-  CLAUDE_AT_FLAGS              claude CLI 추가 플래그         [기본: 없음]
-  CLAUDE_AT_STORE              작업 저장 디렉터리             [기본: ~/.claude-at]
-  CLAUDE_AT_LANG               표시 언어 (en, ko)             [기본: 자동 감지]
-  CLAUDE_AT_RESUME_PROMPT      자동 재개 프롬프트 커스터마이즈
-  CLAUDE_AT_RESUME_BUFFER_SECS 리셋 시간 버퍼 (초)           [기본: 300]
+  CLAUDE_BRB_TERMINAL           터미널 앱 (Terminal, iTerm2)   [기본: Terminal]
+  CLAUDE_BRB_FLAGS              claude CLI 추가 플래그         [기본: 없음]
+  CLAUDE_BRB_STORE              작업 저장 디렉터리             [기본: ~/.claude-brb]
+  CLAUDE_BRB_LANG               표시 언어 (en, ko)             [기본: 자동 감지]
+  CLAUDE_BRB_RESUME_PROMPT      자동 재개 프롬프트 커스터마이즈
+  CLAUDE_BRB_RESUME_BUFFER_SECS 리셋 시간 버퍼 (초)           [기본: 300]
 
 Examples:
-  ca at 03:00 "Write unit tests"                   새 세션 예약
-  ca at +30m -d /Users/dev/app "Refactor"          지정 디렉터리
-  ca at +3h -s abc-123-def "Continue"              세션 재개
-  ca every day 07:00 "Check status"                매일 7시
-  ca every weekday 09:00 "Standup summary"         평일 9시
-  ca at +30m -H "Review PR"                        헤드리스
-  ca at +1h -H -q "Background task"                헤드리스 (출력 폐기)
-  ca auto-resume enable                            자동 재개 활성화
-  ca keep-alive enable                             5시간 리셋 활성화
+  brb at 03:00 "Write unit tests"                   새 세션 예약
+  brb at +30m -d /Users/dev/app "Refactor"          지정 디렉터리
+  brb at +3h -s abc-123-def "Continue"              세션 재개
+  brb every day 07:00 "Check status"                매일 7시
+  brb every weekday 09:00 "Standup summary"         평일 9시
+  brb at +30m -H "Review PR"                        헤드리스
+  brb at +1h -H -q "Background task"                헤드리스 (출력 폐기)
+  brb auto-resume enable                            자동 재개 활성화
+  brb keep-alive enable                             5시간 리셋 활성화
 HELP
     else
         cat <<'HELP'
-claude-at, ca — Claude Code session continuity manager
+claude-brb, brb — be right back with Claude Code
 
 Usage:
   # Core features
-  ca auto-resume enable           enable auto-resume
-  ca auto-resume disable          disable
-  ca auto-resume status           status + recent history
+  brb auto-resume enable           enable auto-resume
+  brb auto-resume disable          disable
+  brb auto-resume status           status + recent history
 
-  ca keep-alive enable [times]    enable 5h timer reset
-  ca keep-alive disable           disable
-  ca keep-alive status            status
+  brb keep-alive enable [times]    enable 5h timer reset
+  brb keep-alive disable           disable
+  brb keep-alive status            status
 
   # One-time scheduling
-  ca at <time> "prompt"                    new session in current dir
-  ca at <time> -d <dir> "prompt"           in specified dir
-  ca at <time> -s <session-id> "prompt"    resume session
-  ca at <time> -H "prompt"                 headless mode
-  ca at <time> -H -q "prompt"              headless, discard output
+  brb at <time> "prompt"                    new session in current dir
+  brb at <time> -d <dir> "prompt"           in specified dir
+  brb at <time> -s <session-id> "prompt"    resume session
+  brb at <time> -H "prompt"                 headless mode
+  brb at <time> -H -q "prompt"             headless, discard output
 
   # Recurring scheduling
-  ca every <schedule> <time> "prompt"
-  ca every <schedule> <time> -d <dir> "prompt"
-  ca every <schedule> <time> -H -q "prompt"
+  brb every <schedule> <time> "prompt"
+  brb every <schedule> <time> -d <dir> "prompt"
+  brb every <schedule> <time> -H -q "prompt"
 
   # Management
-  ca list                         list jobs (with index numbers)
-  ca show <id|#index>             job details
-  ca cancel <id|#index|all>       cancel
-  ca edit <id|#index> ["prompt"]  modify prompt
-  ca reschedule <id|#index> <time>  change time
+  brb list                         list jobs (with index numbers)
+  brb show <id|#index>             job details
+  brb cancel <id|#index|all>       cancel
+  brb edit <id|#index> ["prompt"]  modify prompt
+  brb reschedule <id|#index> <time>  change time
 
   # Settings
-  ca setup                        initial setup (interactive)
-  ca teardown                     full cleanup (before uninstall)
-  ca upgrade                      upgrade existing jobs
-  ca                              status summary
+  brb setup                        initial setup (interactive)
+  brb teardown                     full cleanup (before uninstall)
+  brb upgrade                      upgrade existing jobs
+  brb                              status summary
 
 Time:
   HH:MM       absolute time (next occurrence)
@@ -193,23 +193,23 @@ Flags:
   -q            discard output (use with -H)
 
 Environment:
-  CLAUDE_AT_TERMINAL           terminal app (Terminal, iTerm2)   [default: Terminal]
-  CLAUDE_AT_FLAGS              extra flags for claude CLI        [default: none]
-  CLAUDE_AT_STORE              job storage directory             [default: ~/.claude-at]
-  CLAUDE_AT_LANG               display language (en, ko)         [default: auto-detect]
-  CLAUDE_AT_RESUME_PROMPT      customize auto-resume prompt
-  CLAUDE_AT_RESUME_BUFFER_SECS buffer after reset time (secs)   [default: 300]
+  CLAUDE_BRB_TERMINAL           terminal app (Terminal, iTerm2)   [default: Terminal]
+  CLAUDE_BRB_FLAGS              extra flags for claude CLI        [default: none]
+  CLAUDE_BRB_STORE              job storage directory             [default: ~/.claude-brb]
+  CLAUDE_BRB_LANG               display language (en, ko)         [default: auto-detect]
+  CLAUDE_BRB_RESUME_PROMPT      customize auto-resume prompt
+  CLAUDE_BRB_RESUME_BUFFER_SECS buffer after reset time (secs)   [default: 300]
 
 Examples:
-  ca at 03:00 "Write unit tests"                   schedule new session
-  ca at +30m -d /Users/dev/app "Refactor"          in specified dir
-  ca at +3h -s abc-123-def "Continue"              resume session
-  ca every day 07:00 "Check status"                daily at 7am
-  ca every weekday 09:00 "Standup summary"         weekdays at 9am
-  ca at +30m -H "Review PR"                        headless one-time
-  ca at +1h -H -q "Background task"                headless, discard output
-  ca auto-resume enable                            enable auto-resume
-  ca keep-alive enable                             enable 5h timer reset
+  brb at 03:00 "Write unit tests"                   schedule new session
+  brb at +30m -d /Users/dev/app "Refactor"          in specified dir
+  brb at +3h -s abc-123-def "Continue"              resume session
+  brb every day 07:00 "Check status"                daily at 7am
+  brb every weekday 09:00 "Standup summary"         weekdays at 9am
+  brb at +30m -H "Review PR"                        headless one-time
+  brb at +1h -H -q "Background task"                headless, discard output
+  brb auto-resume enable                            enable auto-resume
+  brb keep-alive enable                             enable 5h timer reset
 HELP
     fi
     exit 0
@@ -233,12 +233,12 @@ validate_dir_path() {
     fi
 }
 
-# Validate CLAUDE_AT_FLAGS — reject shell metacharacters
+# Validate CLAUDE_BRB_FLAGS — reject shell metacharacters
 validate_flags() {
     local flags="$1"
     [ -z "$flags" ] && return 0
     if [[ ! "$flags" =~ ^[a-zA-Z0-9\ _.=/-]+$ ]]; then
-        _err "$(_t "Error: CLAUDE_AT_FLAGS contains unsafe characters" "Error: CLAUDE_AT_FLAGS에 안전하지 않은 문자 포함")"
+        _err "$(_t "Error: CLAUDE_BRB_FLAGS contains unsafe characters" "Error: CLAUDE_BRB_FLAGS에 안전하지 않은 문자 포함")"
         exit 1
     fi
 }
@@ -473,8 +473,8 @@ _ensure_wake_helper() {
     local helper="$STORE/_next_wake.sh"
     cat > "$helper" << 'WAKESCRIPT'
 #!/bin/bash
-# claude-at repeat job next-wake scheduler
-STORE="${2:-$HOME/.claude-at}"
+# claude-brb repeat job next-wake scheduler
+STORE="${2:-$HOME/.claude-brb}"
 JOB_ID="$1"
 [ -z "$JOB_ID" ] && exit 0
 META_FILE="$STORE/${JOB_ID}.meta"
@@ -521,7 +521,7 @@ if [ -n "$best" ]; then
     if sudo -n pmset schedule wake "$wf" 2>/dev/null; then
         echo "$wf" > "$WAKE_FILE"
     else
-        echo "$(date '+%Y-%m-%d %H:%M:%S') warn: pmset wake failed (run 'ca --setup')" >> "$STORE/${JOB_ID}.runlog" 2>/dev/null
+        echo "$(date '+%Y-%m-%d %H:%M:%S') warn: pmset wake failed (run 'brb setup')" >> "$STORE/${JOB_ID}.runlog" 2>/dev/null
     fi
 fi
 WAKESCRIPT
@@ -575,12 +575,12 @@ _can_pmset_sudo() {
     sudo -n /usr/bin/pmset -g sched >/dev/null 2>&1
 }
 
-# Set up /etc/sudoers.d/claude-at for passwordless pmset (interactive)
+# Set up /etc/sudoers.d/claude-brb for passwordless pmset (interactive)
 _setup_pmset_sudo() {
     _can_pmset_sudo && return 0
     [ -t 0 ] || return 1
 
-    local sudoers_file="/etc/sudoers.d/claude-at"
+    local sudoers_file="/etc/sudoers.d/claude-brb"
     local user
     user=$(whoami)
 
@@ -615,7 +615,7 @@ _setup_pmset_sudo() {
     esac
 
     local rule="${user} ALL=(root) NOPASSWD: /usr/bin/pmset schedule wake *, /usr/bin/pmset schedule cancel wake *, /usr/bin/pmset -g sched"
-    if printf '# claude-at: allow passwordless pmset for wake scheduling\n%s\n' "$rule" \
+    if printf '# claude-brb: allow passwordless pmset for wake scheduling\n%s\n' "$rule" \
         | sudo tee "$sudoers_file" >/dev/null \
         && sudo chmod 0440 "$sudoers_file" \
         && sudo chown root:wheel "$sudoers_file"; then
@@ -706,8 +706,8 @@ _auto_resume_cmd() {
     case "$action" in
         enable)
             local ca_path
-            ca_path=$(command -v claude-at 2>/dev/null || command -v ca 2>/dev/null)
-            [ -z "$ca_path" ] && { _err "Error: cannot resolve claude-at path"; return 1; }
+            ca_path=$(command -v claude-brb 2>/dev/null || command -v brb 2>/dev/null)
+            [ -z "$ca_path" ] && { _err "Error: cannot resolve claude-brb path"; return 1; }
             ca_path=$(cd "$(dirname "$ca_path")" && pwd)/$(basename "$ca_path")
 
             if _settings_json_has_hook 2>/dev/null; then
@@ -736,7 +736,7 @@ _auto_resume_cmd() {
                 done
             fi
             ;;
-        *) _err "Usage: ca auto-resume {enable|disable|status}"; return 1 ;;
+        *) _err "Usage: brb auto-resume {enable|disable|status}"; return 1 ;;
     esac
 }
 
@@ -834,7 +834,7 @@ _keep_alive_cmd() {
                 echo "$(_t "keep-alive: disabled" "keep-alive: 비활성")"
             fi
             ;;
-        *) _err "Usage: ca keep-alive {enable|disable|status} [times]"; return 1 ;;
+        *) _err "Usage: brb keep-alive {enable|disable|status} [times]"; return 1 ;;
     esac
 }
 
@@ -866,7 +866,7 @@ _try_schedule_wake() {
             _err "$(_t "Warning: pmset wake scheduling failed" "경고: pmset wake 예약 실패")"
         fi
     else
-        _err "$(_t "Warning: pmset wake scheduling skipped (run 'ca --setup')" "경고: pmset wake 예약 생략 ('ca --setup' 실행 필요)")"
+        _err "$(_t "Warning: pmset wake scheduling skipped (run 'brb setup')" "경고: pmset wake 예약 생략 ('brb setup' 실행 필요)")"
     fi
 }
 
@@ -880,7 +880,7 @@ _applescript_notify() {
     else
         printf '%s\n' "[[ \"\${LANG:-}\" == ko* ]] && _NOTIF=\"Claude 세션을 재개합니다 (${info})\" || _NOTIF=\"Resuming Claude session (${info})\""
     fi
-    printf '%s\n' 'osascript -e "display notification \"$_NOTIF\" with title \"claude-at\""'
+    printf '%s\n' 'osascript -e "display notification \"$_NOTIF\" with title \"claude-brb\""'
 }
 
 # Generate notification lines for headless runner scripts
@@ -898,7 +898,7 @@ _applescript_notify_headless() {
             printf '%s\n' "[[ \"\${LANG:-}\" == ko* ]] && _NOTIF=\"헤드리스 Claude 작업 완료 (${info})\" || _NOTIF=\"Headless Claude task completed (${info})\""
         fi
     fi
-    printf '%s\n' 'osascript -e "display notification \"$_NOTIF\" with title \"claude-at\""'
+    printf '%s\n' 'osascript -e "display notification \"$_NOTIF\" with title \"claude-brb\""'
 }
 
 # Generate AppleScript block to open terminal with exec script (with retry)
@@ -1047,7 +1047,7 @@ _generate_exec() {
             # --- standard interactive exec ---
             printf '%s\n' 'echo ""'
             printf '%s\n' 'printf "\033[2m  ─────────────────────────────────\033[0m\n"'
-            printf '%s\n' 'printf "\033[1m  %s\033[0m  \033[2mclaude-at\033[0m\n" "$(date '\''+%Y-%m-%d %H:%M:%S'\'')"'
+            printf '%s\n' 'printf "\033[1m  %s\033[0m  \033[2mclaude-brb\033[0m\n" "$(date '\''+%Y-%m-%d %H:%M:%S'\'')"'
             printf '%s\n' 'printf "\033[2m  ─────────────────────────────────\033[0m\n"'
             printf '%s\n' 'echo ""'
 
@@ -1112,7 +1112,7 @@ _generate_runner() {
         info_label="${META_SID}"
     fi
 
-    local safe_terminal="${CLAUDE_AT_TERMINAL}"
+    local safe_terminal="${CLAUDE_BRB_TERMINAL}"
     local meta_type="${META_TYPE:-once}"
 
     local cbd
@@ -1130,7 +1130,7 @@ _generate_runner() {
             printf '%s\n' "bash \"${STORE}/_next_wake.sh\" \"${jid}\" \"${STORE}\" 2>/dev/null &"
             # Dedup guard: skip if last run was within MIN_INTERVAL seconds
             printf '%s\n' "_RUNLOG=\"${STORE}/${jid}.runlog\""
-            printf '%s\n' "_MIN_INTERVAL=${CLAUDE_AT_MIN_INTERVAL}"
+            printf '%s\n' "_MIN_INTERVAL=${CLAUDE_BRB_MIN_INTERVAL}"
             printf '%s\n' 'if [ -f "$_RUNLOG" ]; then'
             printf '%s\n' '    _LAST_LINE=$(tail -1 "$_RUNLOG")'
             printf '%s\n' '    case "$_LAST_LINE" in'
@@ -1356,8 +1356,7 @@ list_jobs() {
     done
     if $found; then
         local idx=0
-        echo "$lines" | sort | while IFS= read -r line; do
-            [ -z "$line" ] && continue
+        printf '%s' "$lines" | sort | while IFS= read -r line; do
             idx=$((idx + 1))
             printf "%2d  " "$idx"
             echo "$line" | awk -F ' \\| ' '{printf "%-10s | %-22s | %-34s | %-28s | %s\n", $1, $2, $3, $4, $5}'
@@ -1366,9 +1365,9 @@ list_jobs() {
         echo "$(_t "(no jobs)" "(예약 없음)")"
     fi
     echo ""
-    echo "$(_t "Modify prompt:" "프롬프트 수정:") ca edit <JOB ID>"
-    echo "$(_t "Change time: " "시간 변경:   ") ca reschedule <JOB ID> <TIME>"
-    echo "$(_t "Cancel job:  " "예약 취소:   ") ca cancel <JOB ID> | ca cancel all"
+    echo "$(_t "Modify prompt:" "프롬프트 수정:") brb edit <JOB ID>"
+    echo "$(_t "Change time: " "시간 변경:   ") brb reschedule <JOB ID> <TIME>"
+    echo "$(_t "Cancel job:  " "예약 취소:   ") brb cancel <JOB ID> | brb cancel all"
     return 0
 }
 
@@ -1398,7 +1397,7 @@ cancel_all_jobs() {
 
     if [ "$total_once" -eq 0 ]; then
         echo "$(_t "(no one-time jobs)" "(일회성 예약 없음)")"
-        [ "$total_repeat" -gt 0 ] && echo "$(_t "${total_repeat} repeat job(s) kept (cancel individually: ca cancel <JOB ID>)" "반복 예약 ${total_repeat}개는 유지됨 (개별 취소: ca cancel <JOB ID>)")"
+        [ "$total_repeat" -gt 0 ] && echo "$(_t "${total_repeat} repeat job(s) kept (cancel individually: brb cancel <JOB ID>)" "반복 예약 ${total_repeat}개는 유지됨 (개별 취소: brb cancel <JOB ID>)")"
         return 0
     fi
 
@@ -1453,7 +1452,7 @@ cancel_all_jobs() {
     # Clean up helper script only if no repeat jobs remain
     [ "$total_repeat" -eq 0 ] && rm -f "$STORE/_next_wake.sh"
     echo "$(_t "${count} job(s) cancelled" "총 ${count}개 예약 취소됨")"
-    [ "$total_repeat" -gt 0 ] && echo "$(_t "${total_repeat} repeat job(s) kept (cancel individually: ca cancel <JOB ID>)" "반복 예약 ${total_repeat}개는 유지됨 (개별 취소: ca cancel <JOB ID>)")"
+    [ "$total_repeat" -gt 0 ] && echo "$(_t "${total_repeat} repeat job(s) kept (cancel individually: brb cancel <JOB ID>)" "반복 예약 ${total_repeat}개는 유지됨 (개별 취소: brb cancel <JOB ID>)")"
     $wake_fail && _err "$(_t "Warning: some pmset wake cancellations require admin privileges" "경고: 일부 pmset wake 취소에 관리자 권한이 필요합니다")"
     return 0
 }
@@ -1467,7 +1466,7 @@ cancel_job() {
     local label="${LABEL_PREFIX}.${jid}"
 
     if [ ! -f "${PLIST_DIR}/${label}.plist" ] && [ ! -f "$STORE/${jid}.sh" ]; then
-        _err "$(_t "Error: job not found (see 'ca list')" "Error: 해당 Job ID를 찾을 수 없습니다 ('ca list' 참조)"): ${jid}"
+        _err "$(_t "Error: job not found (see 'brb list')" "Error: 해당 Job ID를 찾을 수 없습니다 ('brb list' 참조)"): ${jid}"
         return 1
     fi
 
@@ -1508,12 +1507,12 @@ modify_job() {
     local runner="$STORE/${jid}.sh"
 
     if [ ! -f "$runner" ]; then
-        _err "$(_t "Error: job not found (see 'ca list')" "Error: 해당 Job ID를 찾을 수 없습니다 ('ca list' 참조)"): ${jid}"
+        _err "$(_t "Error: job not found (see 'brb list')" "Error: 해당 Job ID를 찾을 수 없습니다 ('brb list' 참조)"): ${jid}"
         return 1
     fi
 
     if [ ! -f "$meta_file" ] || [ ! -f "$prompt_file" ]; then
-        _err "$(_t "Error: metadata missing. Run 'ca --upgrade' first." "Error: 메타데이터 파일이 없습니다. 'ca --upgrade'를 먼저 실행하세요.")"
+        _err "$(_t "Error: metadata missing. Run 'brb upgrade' first." "Error: 메타데이터 파일이 없습니다. 'brb upgrade'를 먼저 실행하세요.")"
         return 1
     fi
 
@@ -1572,12 +1571,12 @@ retime_job() {
     local plist="${PLIST_DIR}/${label}.plist"
 
     if [ ! -f "$runner" ]; then
-        _err "$(_t "Error: job not found (see 'ca list')" "Error: 해당 Job ID를 찾을 수 없습니다 ('ca list' 참조)"): ${jid}"
+        _err "$(_t "Error: job not found (see 'brb list')" "Error: 해당 Job ID를 찾을 수 없습니다 ('brb list' 참조)"): ${jid}"
         return 1
     fi
 
     if [ ! -f "$meta_file" ]; then
-        _err "$(_t "Error: metadata missing. Run 'ca --upgrade' first." "Error: 메타데이터 파일이 없습니다. 'ca --upgrade'를 먼저 실행하세요.")"
+        _err "$(_t "Error: metadata missing. Run 'brb upgrade' first." "Error: 메타데이터 파일이 없습니다. 'brb upgrade'를 먼저 실행하세요.")"
         return 1
     fi
 
@@ -1592,7 +1591,7 @@ retime_job() {
     if [ "$meta_type" = "repeat" ]; then
         if [[ "$time_str" == +* ]]; then
             _err "$(_t "Error: repeat jobs cannot use relative time (+Nm, +Nh, +Nd). Use HH:MM format." "Error: 반복 작업은 상대 시간(+Nm, +Nh, +Nd) 사용 불가. HH:MM 형식을 사용하세요.")"
-            _err "$(_t "Example:" "예:") ca reschedule ${jid} 08:00,13:00"
+            _err "$(_t "Example:" "예:") brb reschedule ${jid} 08:00,13:00"
             return 1
         fi
 
@@ -1719,7 +1718,7 @@ upgrade_all_jobs() {
 _ar_notify() {
     local msg="$1"
     local level="${2:-info}"  # info, warning, error, success
-    osascript -e "display notification \"${msg//\"/\\\"}\" with title \"claude-at\"" 2>/dev/null || true
+    osascript -e "display notification \"${msg//\"/\\\"}\" with title \"claude-brb\"" 2>/dev/null || true
 }
 
 _hook_auto_resume() {
@@ -1790,7 +1789,7 @@ _hook_auto_resume() {
     tail -3 "$guard_file" > "${guard_file}.tmp" && mv "${guard_file}.tmp" "$guard_file"
 
     # Parse reset time from error_details using node
-    local buffer_secs="${CLAUDE_AT_RESUME_BUFFER_SECS:-300}"
+    local buffer_secs="${CLAUDE_BRB_RESUME_BUFFER_SECS:-300}"
     local schedule_time
     schedule_time=$(node -e "
         const details = process.argv[1];
@@ -1840,23 +1839,23 @@ _hook_auto_resume() {
 
     # Resolve ca path
     local ca_bin
-    ca_bin=$(command -v claude-at 2>/dev/null || command -v ca 2>/dev/null || echo "$0")
+    ca_bin=$(command -v claude-brb 2>/dev/null || command -v brb 2>/dev/null || echo "$0")
 
     # Build resume prompt
-    local resume_prompt="${CLAUDE_AT_RESUME_PROMPT:-$(_t \
+    local resume_prompt="${CLAUDE_BRB_RESUME_PROMPT:-$(_t \
         'You were interrupted by a rate limit. Review the conversation history and continue where you left off. Verify the current state before making changes. Do not repeat completed work.' \
         'Rate limit으로 작업이 중단되었습니다. 대화 기록을 검토하고 중단된 지점부터 이어서 진행하세요. 변경 전 현재 상태를 확인하고, 이미 완료된 작업은 반복하지 마세요.')}"
 
     # Schedule resume (requires Task 7: 'at' subcommand — until then, falls through to old CLI)
     local ca_output
-    if ca_output=$(_CLAUDE_AT_SUBTYPE=auto-resume "$ca_bin" at "$schedule_time" -H -s "$session_id" "$resume_prompt" 2>&1); then
+    if ca_output=$(_CLAUDE_BRB_SUBTYPE=auto-resume "$ca_bin" at "$schedule_time" -H -s "$session_id" "$resume_prompt" 2>&1); then
         local job_info
         job_info=$(echo "$ca_output" | grep -o 'Job ID: [^ ]*' | head -1 || echo "")
-        _ar_notify "$(_t "auto-resume: scheduled at ${schedule_time}" "auto-resume: ${schedule_time}에 재개 예약됨") | ca cancel ${job_info##*: }" "success"
+        _ar_notify "$(_t "auto-resume: scheduled at ${schedule_time}" "auto-resume: ${schedule_time}에 재개 예약됨") | brb cancel ${job_info##*: }" "success"
         echo "[$(date)] SCHEDULED: ${schedule_time} session=${session_id} ${job_info}" >> "$STORE/auto-resume.log"
     else
         _ar_notify "$(_t 'auto-resume: scheduling failed' 'auto-resume: 예약 실패')" "error"
-        echo "[$(date)] FAILED: ca exit=$? output=$ca_output" >> "$STORE/auto-resume.log"
+        echo "[$(date)] FAILED: brb exit=$? output=$ca_output" >> "$STORE/auto-resume.log"
     fi
 }
 
@@ -1897,7 +1896,7 @@ _parse_at_flags() {
 }
 
 _schedule_at() {
-    [ $# -lt 2 ] && { _err "Usage: ca at <time> [flags] 'prompt'"; exit 1; }
+    [ $# -lt 2 ] && { _err "Usage: brb at <time> [flags] 'prompt'"; exit 1; }
 
     _FLAG_DIR=""
     _FLAG_SID=""
@@ -1918,11 +1917,11 @@ _schedule_at() {
 
     mkdir -p "$STORE"
     [ -d "$STORE" ] && chmod 700 "$STORE" 2>/dev/null || true
-    if [ -n "${CLAUDE_AT_STORE:-}" ] && [ "$(stat -f '%u' "$STORE")" != "$(id -u)" ]; then
+    if [ -n "${CLAUDE_BRB_STORE:-}" ] && [ "$(stat -f '%u' "$STORE")" != "$(id -u)" ]; then
         _err "$(_t "Error: store directory must be owned by current user" "Error: 저장 디렉터리는 현재 사용자 소유여야 합니다"): $STORE"
         exit 1
     fi
-    validate_flags "$CLAUDE_AT_FLAGS"
+    validate_flags "$CLAUDE_BRB_FLAGS"
     _check_claude
 
     local DIR MODE SID=""
@@ -1950,7 +1949,7 @@ _schedule_at() {
     local id_prefix="once"
     local meta_subtype=""
     [ "$MODE" = "resume" ] && id_prefix="res"
-    [ "${_CLAUDE_AT_SUBTYPE:-}" = "auto-resume" ] && meta_subtype="auto-resume"
+    [ "${_CLAUDE_BRB_SUBTYPE:-}" = "auto-resume" ] && meta_subtype="auto-resume"
 
     JOB_ID=$(_make_job_id "$id_prefix")
 
@@ -1964,10 +1963,10 @@ _schedule_at() {
     target_month=$((10#$(date -r "$target" +%m)))
     target_ymd=$(date -r "$target" +%Y%m%d)
 
-    _HL_FLAGS="$CLAUDE_AT_FLAGS"
+    _HL_FLAGS="$CLAUDE_BRB_FLAGS"
     if [ "$_HEADLESS" = 'yes' ]; then
-        extra_flag=$(_headless_perm_check "$CLAUDE_AT_FLAGS")
-        [ -n "$extra_flag" ] && _HL_FLAGS="${CLAUDE_AT_FLAGS:+${CLAUDE_AT_FLAGS} }${extra_flag}"
+        extra_flag=$(_headless_perm_check "$CLAUDE_BRB_FLAGS")
+        [ -n "$extra_flag" ] && _HL_FLAGS="${CLAUDE_BRB_FLAGS:+${CLAUDE_BRB_FLAGS} }${extra_flag}"
     fi
 
     printf '%s' "$PROMPT" | _atomic_write "$STORE/${JOB_ID}.prompt"
@@ -1985,6 +1984,7 @@ _schedule_at() {
         [ "$_HEADLESS" = 'yes' ] && printf "META_HEADLESS='yes'\n"
         [ "$_QUIET" = 'yes' ] && printf "META_QUIET='yes'\n"
         [ -n "$meta_subtype" ] && printf "META_SUBTYPE='%s'\n" "$meta_subtype"
+        true
     } | _atomic_write "$STORE/${JOB_ID}.meta"
 
     [ -n "$_HL_FLAGS" ] && _err "$(_t "WARNING: This job will run with:" "경고: 이 작업은 다음 플래그로 실행됩니다:") $_HL_FLAGS"
@@ -2011,7 +2011,7 @@ _schedule_at() {
 }
 
 _schedule_every() {
-    [ $# -lt 3 ] && { _err "Usage: ca every <schedule> <time> [flags] 'prompt'"; exit 1; }
+    [ $# -lt 3 ] && { _err "Usage: brb every <schedule> <time> [flags] 'prompt'"; exit 1; }
 
     _FLAG_DIR=""
     _FLAG_SID=""
@@ -2036,11 +2036,11 @@ _schedule_every() {
 
     mkdir -p "$STORE"
     [ -d "$STORE" ] && chmod 700 "$STORE" 2>/dev/null || true
-    if [ -n "${CLAUDE_AT_STORE:-}" ] && [ "$(stat -f '%u' "$STORE")" != "$(id -u)" ]; then
+    if [ -n "${CLAUDE_BRB_STORE:-}" ] && [ "$(stat -f '%u' "$STORE")" != "$(id -u)" ]; then
         _err "$(_t "Error: store directory must be owned by current user" "Error: 저장 디렉터리는 현재 사용자 소유여야 합니다"): $STORE"
         exit 1
     fi
-    validate_flags "$CLAUDE_AT_FLAGS"
+    validate_flags "$CLAUDE_BRB_FLAGS"
     _check_claude
 
     local RPT_WEEKDAYS
@@ -2062,10 +2062,10 @@ _schedule_every() {
     local RPT_SCHED_ID="${RPT_SCHEDULE//,/-}"
     JOB_ID=$(_make_job_id "rpt.${RPT_SCHED_ID}")
 
-    _HL_FLAGS="$CLAUDE_AT_FLAGS"
+    _HL_FLAGS="$CLAUDE_BRB_FLAGS"
     if [ "$_HEADLESS" = 'yes' ]; then
-        extra_flag=$(_headless_perm_check "$CLAUDE_AT_FLAGS")
-        [ -n "$extra_flag" ] && _HL_FLAGS="${CLAUDE_AT_FLAGS:+${CLAUDE_AT_FLAGS} }${extra_flag}"
+        extra_flag=$(_headless_perm_check "$CLAUDE_BRB_FLAGS")
+        [ -n "$extra_flag" ] && _HL_FLAGS="${CLAUDE_BRB_FLAGS:+${CLAUDE_BRB_FLAGS} }${extra_flag}"
     fi
 
     printf '%s' "$PROMPT" | _atomic_write "$STORE/${JOB_ID}.prompt"
@@ -2080,6 +2080,7 @@ _schedule_every() {
         printf "META_WEEKDAYS='%s'\n" "$RPT_WEEKDAYS"
         [ "$_HEADLESS" = 'yes' ] && printf "META_HEADLESS='yes'\n"
         [ "$_QUIET" = 'yes' ] && printf "META_QUIET='yes'\n"
+        true
     } | _atomic_write "$STORE/${JOB_ID}.meta"
 
     [ -n "$_HL_FLAGS" ] && _err "$(_t "WARNING: This job will run with:" "경고: 이 작업은 다음 플래그로 실행됩니다:") $_HL_FLAGS"
@@ -2105,7 +2106,7 @@ _schedule_every() {
 }
 
 _status_summary() {
-    echo "claude-at $VERSION"
+    echo "claude-brb $VERSION"
     echo ""
 
     if _settings_json_has_hook 2>/dev/null; then
@@ -2130,12 +2131,12 @@ _status_summary() {
     done
     echo ""
     echo "$(_t "Scheduled jobs:" "예약된 작업:") ${count}$(_t " jobs" "개")"
-    echo "$(_t "'ca list' for details, 'ca help' for usage" "'ca list'로 목록 확인, 'ca help'로 사용법 확인")"
+    echo "$(_t "'brb list' for details, 'brb help' for usage" "'brb list'로 목록 확인, 'brb help'로 사용법 확인")"
     return 0
 }
 
 _full_setup() {
-    echo "claude-at $(_t "initial setup" "초기 설정")"
+    echo "claude-brb $(_t "initial setup" "초기 설정")"
     echo "━━━━━━━━━━━━━━━━━━"
     echo ""
 
@@ -2211,8 +2212,8 @@ _teardown() {
     echo "      Done."
 
     echo "[4/4] $(_t "Removing pmset permissions..." "pmset 권한 제거...")"
-    if [ -f /etc/sudoers.d/claude-at ]; then
-        sudo rm -f /etc/sudoers.d/claude-at && echo "      Done." || echo "      Failed. (sudo required)"
+    if [ -f /etc/sudoers.d/claude-brb ]; then
+        sudo rm -f /etc/sudoers.d/claude-brb && echo "      Done." || echo "      Failed. (sudo required)"
     else
         echo "      $(_t "Not configured. Skipping." "설정되어 있지 않습니다.")"
     fi
@@ -2226,7 +2227,7 @@ _teardown() {
     echo ""
     if [ "$user_count" -gt 0 ]; then
         echo "$(_t "User jobs remaining:" "사용자 예약 작업 유지:") ${user_count}$(_t " jobs" "개")"
-        echo "$(_t "To remove all: ca cancel all" "전체 삭제: ca cancel all")"
+        echo "$(_t "To remove all: brb cancel all" "전체 삭제: brb cancel all")"
     fi
 }
 
@@ -2258,7 +2259,7 @@ _resolve_job_ref() {
             sort_lines+="${type_display} | ${sched_display} | ${fname}"$'\n'
         done
         local target_fname
-        target_fname=$(echo "$sort_lines" | sort | sed -n "${ref}p" | awk -F ' \\| ' '{print $3}' | tr -d '[:space:]')
+        target_fname=$(printf '%s' "$sort_lines" | sort | sed -n "${ref}p" | awk -F ' \\| ' '{print $3}' | tr -d '[:space:]')
         if [ -n "$target_fname" ]; then
             echo "$target_fname"
             return 0
@@ -2331,8 +2332,8 @@ fi
 case "${1:-}" in
     # Internal
     _hook-auto-resume) _hook_auto_resume; exit $? ;;
-    _test-settings-add)    [ -n "${CLAUDE_AT_STORE:-}" ] || { _err "test-only command"; exit 1; }; _settings_json_add_hook "$2"; exit 0 ;;
-    _test-settings-remove) [ -n "${CLAUDE_AT_STORE:-}" ] || { _err "test-only command"; exit 1; }; _settings_json_remove_hook; exit 0 ;;
+    _test-settings-add)    [ -n "${CLAUDE_BRB_STORE:-}" ] || { _err "test-only command"; exit 1; }; _settings_json_add_hook "$2"; exit 0 ;;
+    _test-settings-remove) [ -n "${CLAUDE_BRB_STORE:-}" ] || { _err "test-only command"; exit 1; }; _settings_json_remove_hook; exit 0 ;;
 
     # Core features
     auto-resume) shift; _auto_resume_cmd "${1:-status}"; exit 0 ;;
@@ -2340,16 +2341,16 @@ case "${1:-}" in
 
     # Management
     list)       list_jobs; exit $? ;;
-    show)       [ -z "${2:-}" ] && { _err "Usage: ca show <job-id|#index>"; exit 1; }; show_job "$2"; exit $? ;;
-    cancel)     [ -z "${2:-}" ] && { _err "Usage: ca cancel <job-id|#index|all>"; exit 1; }; cancel_job "$(_resolve_job_ref "$2")"; exit $? ;;
-    edit)       [ -z "${2:-}" ] && { _err "Usage: ca edit <job-id|#index> [prompt]"; exit 1; }; modify_job "$(_resolve_job_ref "$2")" "${3:-}"; exit $? ;;
-    reschedule) [ -z "${2:-}" ] && { _err "Usage: ca reschedule <job-id|#index> <time>"; exit 1; }; retime_job "$(_resolve_job_ref "$2")" "${3:-}"; exit $? ;;
+    show)       [ -z "${2:-}" ] && { _err "Usage: brb show <job-id|#index>"; exit 1; }; show_job "$2"; exit $? ;;
+    cancel)     [ -z "${2:-}" ] && { _err "Usage: brb cancel <job-id|#index|all>"; exit 1; }; cancel_job "$(_resolve_job_ref "$2")"; exit $? ;;
+    edit)       [ -z "${2:-}" ] && { _err "Usage: brb edit <job-id|#index> [prompt]"; exit 1; }; modify_job "$(_resolve_job_ref "$2")" "${3:-}"; exit $? ;;
+    reschedule) [ -z "${2:-}" ] && { _err "Usage: brb reschedule <job-id|#index> <time>"; exit 1; }; retime_job "$(_resolve_job_ref "$2")" "${3:-}"; exit $? ;;
 
     # Settings
     setup)      _full_setup; exit 0 ;;
     teardown)   _teardown; exit 0 ;;
     upgrade)    upgrade_all_jobs ;;
-    version|--version|-V) echo "claude-at $VERSION"; exit 0 ;;
+    version|--version|-V) echo "claude-brb $VERSION"; exit 0 ;;
     help|--help|-h) show_help ;;
 
     # Scheduling
@@ -2361,15 +2362,15 @@ case "${1:-}" in
 
     # Backward compat: old flags
     -l|--list)    list_jobs; exit $? ;;
-    -c|--cancel)  [ -z "${2:-}" ] && { _err "$(_t "Error: job-id required" "Error: Job ID가 필요합니다"): ca cancel <job-id>"; exit 1; }; cancel_job "$2"; exit $? ;;
-    -m|--modify)  [ -z "${2:-}" ] && { _err "$(_t "Error: job-id required" "Error: Job ID가 필요합니다"): ca edit <job-id>"; exit 1; }; modify_job "$2" "${3:-}"; exit $? ;;
-    -t|--time)    [ -z "${2:-}" ] && { _err "$(_t "Error: job-id required" "Error: Job ID가 필요합니다"): ca reschedule <job-id> <time>"; exit 1; }; retime_job "$2" "${3:-}"; exit $? ;;
+    -c|--cancel)  [ -z "${2:-}" ] && { _err "$(_t "Error: job-id required" "Error: Job ID가 필요합니다"): brb cancel <job-id>"; exit 1; }; cancel_job "$2"; exit $? ;;
+    -m|--modify)  [ -z "${2:-}" ] && { _err "$(_t "Error: job-id required" "Error: Job ID가 필요합니다"): brb edit <job-id>"; exit 1; }; modify_job "$2" "${3:-}"; exit $? ;;
+    -t|--time)    [ -z "${2:-}" ] && { _err "$(_t "Error: job-id required" "Error: Job ID가 필요합니다"): brb reschedule <job-id> <time>"; exit 1; }; retime_job "$2" "${3:-}"; exit $? ;;
     -u|--upgrade) upgrade_all_jobs ;;
     -S|--setup)   _setup_pmset_sudo; exit $? ;;
     -r|--repeat)  shift; _schedule_every "$@" ;;
 
     # Unknown
     *) _err "$(_t "Error: unknown command" "Error: 알 수 없는 명령"): $1"
-       _err "$(_t "Run 'ca help' for usage" "'ca help'로 사용법 확인")"
+       _err "$(_t "Run 'brb help' for usage" "'brb help'로 사용법 확인")"
        exit 1 ;;
 esac
