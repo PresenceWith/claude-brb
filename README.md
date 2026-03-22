@@ -1,89 +1,124 @@
 # claude-brb
 
-Be right back with Claude Code — schedule CLI sessions on macOS using launchd.
+Be right back with [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
 
-- One-time or recurring schedules (daily, weekday, weekend, specific days)
-- Auto-resume on rate limits, keep-alive for 5-hour timer resets
-- Headless mode for background tasks (no terminal window)
-- Wake-from-sleep support via `pmset`
-- Session resumption by session ID
-- Bilingual output (English / Korean, auto-detected)
+Claude Code는 훌륭하지만, 혼자 두면 멈춥니다.
+Rate limit이 걸리면 세션이 끊기고, 5시간이 지나면 타이머가 리셋되고,
+Mac이 잠들면 예약해둔 작업이 실행되지 않습니다.
 
-## Requirements
+**claude-brb**는 이 세 가지 문제를 해결합니다:
 
-- **macOS** (uses launchd, AppleScript, BSD date)
-- **Claude Code CLI** (`claude` command in PATH)
-- **bash 3.2+** (ships with macOS)
-- **Terminal.app** or **iTerm2**
+```bash
+brb setup  # 한 번만 실행하면 끝
+```
 
-## Installation
+- **Rate limit** → 자동으로 재개 시간을 계산해서 재예약
+- **5시간 타이머** → 주기적으로 리셋해서 끊김 방지
+- **Mac 잠자기** → pmset으로 깨워서 예약 작업 실행
 
-### Homebrew (Recommended)
+자기 전에 작업을 예약하면, 아침에 결과를 확인할 수 있습니다:
+
+```bash
+brb at 03:00 "Write unit tests for the auth module"
+```
+
+## Install
 
 ```bash
 brew install PresenceWith/tap/claude-brb
+brb setup
 ```
 
-This installs `claude-brb` and `brb` (symlink) to your Homebrew prefix.
+<details>
+<summary>Other methods</summary>
 
 ### User-local
 
 ```bash
 git clone https://github.com/PresenceWith/claude-brb.git
 cd claude-brb
-make install-user
+make install-user    # ~/.local/bin/claude-brb + brb symlink
+brb setup
 ```
-
-This installs to `~/.local/bin/claude-brb` with a `brb` symlink. Make sure `~/.local/bin` is in your `PATH`.
 
 ### System-wide
 
 ```bash
-sudo make install
-```
-
-Installs to `/usr/local/bin/claude-brb` with a `brb` symlink.
-
-## Setup
-
-```bash
+sudo make install    # /usr/local/bin/claude-brb + brb symlink
 brb setup
 ```
 
-Interactive setup that configures:
-1. **Wake-from-sleep** — passwordless `pmset` access (`/etc/sudoers.d/claude-brb`)
-2. **Auto-resume** — automatically reschedules sessions after rate limits
-3. **Keep-alive** — resets the 5-hour usage timer periodically
+</details>
 
 ## Quick Start
 
 ```bash
-# One-time session in 30 minutes
-brb at +30m "Write unit tests for the auth module"
+# 30분 후에 세션 시작
+brb at +30m "Refactor the database layer"
 
-# At a specific time, in a specific directory
-brb at 03:00 -d /path/to/project "Refactor the database layer"
+# 특정 시간에, 특정 디렉터리에서
+brb at 03:00 -d /path/to/project "Write integration tests"
 
-# Resume an existing session
+# 이전 세션 이어서
 brb at +30m -s <session-id> "Continue where you left off"
 
-# Headless (no terminal window, runs in background)
+# 터미널 없이 백그라운드로 (headless)
 brb at +30m -H "Review PR"
 
-# Recurring: every weekday at 9am
-brb every weekday 09:00 "Review overnight changes"
+# 매일 반복
+brb every daily 09:00 "Check overnight changes"
 
-# Recurring: daily at multiple times
-brb every daily 07:00,12:00,17:00 "Check status"
+# 평일만, 여러 시간에
+brb every weekday 07:00,12:00,17:00 "Status check"
 
-# List all jobs
-brb list
-
-# Status summary
+# 상태 확인
 brb
 ```
 
-## Usage
+## Core Features
+
+### Auto-resume
+
+Rate limit으로 세션이 끊기면, 재개 가능 시간을 파싱해서 자동으로 재예약합니다.
+30분 내 3회 이상 반복 중단되면 자동으로 멈춰서 무한 루프를 방지합니다.
+
+```bash
+brb auto-resume enable    # 활성화
+brb auto-resume status    # 상태 + 최근 이력
+brb auto-resume disable   # 비활성화
+```
+
+### Keep-alive
+
+Claude Code의 5시간 사용 타이머가 리셋되지 않도록 주기적으로 경량 세션을 실행합니다.
+
+```bash
+brb keep-alive enable              # 기본 간격으로 활성화
+brb keep-alive enable 01:00,06:00,11:00,16:00,21:00   # 커스텀 시간
+brb keep-alive disable
+```
+
+### Headless Mode
+
+터미널 창 없이 백그라운드에서 실행합니다. CI 스타일 작업에 적합합니다.
+
+```bash
+brb at +30m -H "Analyze codebase and write report"
+brb at +30m -H -q "Background task"    # 출력도 폐기
+```
+
+### Wake from Sleep
+
+Mac이 잠들어 있어도 예약 시간 2분 전에 깨워서 작업을 실행합니다.
+`brb setup`으로 한 번 설정하면 이후 자동으로 동작합니다.
+
+| 상태 | 깨움 | 작업 실행 |
+|------|------|-----------|
+| 덮개 열림, 잠자기 | O | O |
+| 덮개 닫힘 + 외부 모니터 | O | O |
+| 덮개 닫힘, 모니터 없음 | O | **X** — 터미널을 열 수 없음 |
+
+## Usage Reference
 
 ```
 claude-brb, brb — be right back with Claude Code
@@ -128,9 +163,9 @@ brb                              status summary
 | Format | Example | Description |
 |--------|---------|-------------|
 | `HH:MM` | `03:00` | Absolute time (next occurrence) |
-| `+Nm` | `+30m` | Relative: N minutes from now |
-| `+Nh` | `+2h` | Relative: N hours from now |
-| `+Nd` | `+1d` | Relative: N days from now |
+| `+Nm` | `+30m` | N minutes from now |
+| `+Nh` | `+2h` | N hours from now |
+| `+Nd` | `+1d` | N days from now |
 | `HH:MM,HH:MM` | `07:00,12:00,17:00` | Multiple times (recurring only) |
 
 ### Schedule Types
@@ -165,7 +200,7 @@ brb                              status summary
 | `CLAUDE_BRB_RESUME_PROMPT` | *(built-in)* | Custom auto-resume prompt |
 | `CLAUDE_BRB_RESUME_BUFFER_SECS` | `300` | Buffer after reset time (seconds) |
 
-### Running with `--dangerously-skip-permissions`
+### `--dangerously-skip-permissions`
 
 ```bash
 export CLAUDE_BRB_FLAGS="--dangerously-skip-permissions"
@@ -174,15 +209,12 @@ brb at +30m "task that needs full permissions"
 
 > **Warning**: This flag disables all permission checks in Claude Code. Scheduled sessions run unattended — use with caution.
 
-### Wake from Sleep
+## Requirements
 
-`brb setup` configures passwordless `pmset` access. When a job is created, `claude-brb` schedules a `pmset wake` 2 minutes before the target time. For recurring jobs, each run automatically schedules the next wake.
-
-| State | Wake | Job runs |
-|-------|------|----------|
-| Lid open, asleep | Yes | Yes |
-| Lid closed + external monitor + power | Yes | Yes |
-| Lid closed, no external monitor | Yes | **No** — terminal cannot open |
+- **macOS** (uses launchd, AppleScript, BSD date)
+- **Claude Code CLI** (`claude` command in PATH)
+- **bash 3.2+** (ships with macOS)
+- **Terminal.app** or **iTerm2**
 
 ## How It Works
 
@@ -196,10 +228,6 @@ brb at +30m "task that needs full permissions"
    - Runs an **exec script** inside the terminal that starts Claude Code with `caffeinate -i`
 3. For one-time jobs, the exec script cleans up all files after execution
 4. For recurring jobs, a `_next_wake.sh` helper calculates and registers the next wake time
-
-## Upgrading
-
-After updating `claude-brb`, run `brb upgrade` to regenerate runner scripts for existing jobs.
 
 ## Uninstall
 
@@ -219,16 +247,13 @@ rm -rf ~/.claude-brb             # remove job data
 macOS requires Automation permission. Go to System Settings > Privacy & Security > Automation and allow your terminal to control Terminal.app (or iTerm2).
 
 **Job didn't run (machine was asleep)**
-Run `brb setup` to configure passwordless `pmset` access. Check `~/.claude-brb/<job-id>.runlog` for `warn: pmset wake failed` entries. The lid must be open or an external monitor connected.
+Run `brb setup` to configure passwordless `pmset` access. Check `~/.claude-brb/<job-id>.runlog` for `warn: pmset wake failed` entries.
 
 **Job ran late**
 Check if `pmset wake` was scheduled: `pmset -g sched`. If no wake entry exists, run `brb setup` and then `brb upgrade` to regenerate scripts.
 
 **"bootstrap failed" when creating a job**
 The launchd agent may already be loaded. Run `brb cancel <job-id>` to clean up, then recreate.
-
-**Jobs from older versions can't be modified**
-Run `brb upgrade` to add missing metadata fields and regenerate scripts.
 
 ## License
 
