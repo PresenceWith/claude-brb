@@ -2,30 +2,27 @@
 
 Be right back with [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
 
-Claude Code를 오래 쓰다 보면 세 가지 벽에 부딪힙니다:
+Claude Code를 오래 쓰다 보면 귀찮은 일이 생깁니다.
+Rate limit 걸려서 세션이 끊기고, 5시간 타이머 때문에 흐름이 끊기고,
+Mac이 잠들어서 예약해둔 작업이 실행 안 되고.
 
-1. **Rate limit** — 세션이 끊기고, 재개 가능 시간까지 기다려야 합니다
-2. **5시간 타이머** — 사용 제한이 리셋되어 흐름이 끊깁니다
-3. **Mac 잠자기** — 예약해둔 작업이 실행되지 않습니다
-
-claude-brb는 Claude Code의 **hook 시스템에 직접 연결**됩니다.
-세션이 끊기면 Claude Code가 직접 brb를 호출하고,
-brb가 재개 시간을 계산해서 launchd로 예약합니다.
-폴링도, 감시 프로세스도 없습니다. **이벤트 드리븐**입니다.
+claude-brb는 이걸 알아서 처리해 줍니다.
+Claude Code의 hook 시스템에 직접 물려서, 세션이 끊기는 순간 재개 시간을 계산하고 launchd로 예약합니다.
+폴링도, 감시 프로세스도 없이 이벤트 드리븐으로 동작합니다.
 
 ```bash
 brew install PresenceWith/tap/claude-brb
 brb setup   # hook 등록 + wake 설정 + keep-alive — 한 번이면 끝
 ```
 
-이제 자기 전에 이렇게 하면:
+자기 전에 이렇게 걸어두면:
 
 ```bash
 brb at 03:00 "Write unit tests for the auth module"
 ```
 
-아침에 결과를 확인할 수 있습니다.
-Rate limit이 걸려도, Mac이 잠들어도, brb가 알아서 처리합니다.
+아침에 결과만 확인하면 됩니다.
+Rate limit이 걸리든, Mac이 잠들든, brb가 다 처리합니다.
 
 ## How It Works
 
@@ -52,12 +49,12 @@ Claude Code session
             launchd fires ──▶ pmset wake ──▶ open Terminal ──▶ claude --resume
 ```
 
-`brb setup`이 하는 일:
+`brb setup`은 세 가지를 설정합니다:
 - Claude Code `settings.json`에 **StopFailure hook** 등록
-- passwordless **pmset** 설정 (Mac 잠자기 해제)
-- **keep-alive** 반복 작업 등록 (5시간 타이머 리셋)
+- passwordless **pmset** 설정 (잠자기 상태에서도 깨울 수 있게)
+- **keep-alive** 반복 작업 등록 (5시간 타이머 리셋용)
 
-외부 데몬이 아닙니다. macOS 네이티브 launchd + Claude Code 네이티브 hook입니다.
+별도 데몬 없이 macOS 네이티브 launchd와 Claude Code hook만 씁니다.
 
 ## Install
 
@@ -84,35 +81,35 @@ sudo make install && brb setup
 ## Quick Start
 
 ```bash
-# 30분 후에 세션 시작
+# 30분 뒤에 시작
 brb at +30m "Refactor the database layer"
 
-# 특정 시간에, 특정 디렉터리에서
+# 새벽 3시에, 특정 프로젝트에서
 brb at 03:00 -d /path/to/project "Write integration tests"
 
-# 이전 세션 이어서
+# 이전 세션 이어서 하기
 brb at +30m -s <session-id> "Continue where you left off"
 
-# 터미널 없이 백그라운드로
+# 터미널 없이 백그라운드 실행
 brb at +30m -H "Review PR"
 
-# 매일 반복
+# 매일 아침 9시에
 brb every daily 09:00 "Check overnight changes"
 
-# 평일만, 여러 시간에
+# 평일만, 하루 세 번
 brb every weekday 07:00,12:00,17:00 "Status check"
 
-# 상태 확인
+# 현재 상태 보기
 brb
 ```
 
 ## Core Features
 
-### Auto-resume — Claude Code hook으로 동작
+### Auto-resume — rate limit 걸리면 알아서 다시 시작
 
-Claude Code의 StopFailure hook에 등록되어, rate limit으로 세션이 끊기는 순간 자동으로 트리거됩니다.
-에러 메시지에서 재개 가능 시간을 파싱하고, 해당 시간에 세션을 재예약합니다.
-30분 내 3회 이상 반복 중단되면 자동으로 멈춰서 무한 루프를 방지합니다.
+Claude Code의 StopFailure hook에 물려 있어서, rate limit으로 세션이 끊기면 바로 작동합니다.
+에러 메시지에서 재개 시간을 읽어와 그 시간에 맞춰 자동으로 다시 예약합니다.
+30분 안에 3번 이상 연속으로 끊기면 무한 루프 방지를 위해 자동으로 멈춥니다.
 
 ```bash
 brb auto-resume enable    # StopFailure hook 등록
@@ -120,9 +117,9 @@ brb auto-resume status    # 상태 + 최근 이력
 brb auto-resume disable   # hook 제거
 ```
 
-### Keep-alive — 5시간 타이머 리셋
+### Keep-alive — 5시간 타이머가 끊기지 않게
 
-Claude Code의 5시간 사용 제한 타이머가 리셋되지 않도록 주기적으로 경량 headless 세션을 실행합니다.
+주기적으로 가벼운 headless 세션을 돌려서 Claude Code의 5시간 사용 제한 타이머를 리셋합니다.
 
 ```bash
 brb keep-alive enable                                  # 기본 간격
@@ -130,25 +127,25 @@ brb keep-alive enable 01:00,06:00,11:00,16:00,21:00    # 커스텀 시간
 brb keep-alive disable
 ```
 
-### Headless Mode — 터미널 없이 실행
+### Headless Mode — 터미널 창 없이 실행
 
-터미널 창 없이 `claude -p`로 실행합니다. CI 스타일 배치 작업에 적합합니다.
+`claude -p`로 터미널 창 없이 돌립니다. 배치 작업처럼 결과만 받고 싶을 때 유용합니다.
 
 ```bash
 brb at +30m -H "Analyze codebase and write report"
 brb at +30m -H -q "Background task"    # 출력도 폐기
 ```
 
-### Wake from Sleep — Mac을 깨워서 실행
+### Wake from Sleep — Mac이 자고 있어도 깨워서 실행
 
 예약 시간 2분 전에 `pmset`으로 Mac을 깨웁니다.
-`brb setup`으로 한 번 설정하면 이후 자동으로 동작합니다.
+`brb setup`에서 한 번 설정해 두면 이후로는 신경 쓸 필요 없습니다.
 
 | 상태 | 깨움 | 작업 실행 |
 |------|------|-----------|
 | 덮개 열림, 잠자기 | O | O |
 | 덮개 닫힘 + 외부 모니터 | O | O |
-| 덮개 닫힘, 모니터 없음 | O | **X** — 터미널을 열 수 없음 |
+| 덮개 닫힘, 모니터 없음 | O | **X** — 터미널을 열 수 없음 (`-H` 모드로 우회 가능) |
 
 ## Usage Reference
 
@@ -239,7 +236,7 @@ export CLAUDE_BRB_FLAGS="--dangerously-skip-permissions"
 brb at +30m "task that needs full permissions"
 ```
 
-> **Warning**: This flag disables all permission checks in Claude Code. Scheduled sessions run unattended — use with caution.
+> **Warning**: Claude Code의 모든 권한 검사를 끕니다. 예약 작업은 사람 없이 돌아가므로 주의해서 쓰세요.
 
 ## Requirements
 
@@ -251,28 +248,28 @@ brb at +30m "task that needs full permissions"
 ## Uninstall
 
 ```bash
-brb teardown                     # remove hooks, keep-alive, sudoers
-brb cancel all                   # cancel one-time jobs
-brb list                         # check for remaining recurring jobs
-brb cancel <job-id>              # cancel individually
+brb teardown                     # hook, keep-alive, sudoers 제거
+brb cancel all                   # 일회성 작업 전부 취소
+brb list                         # 반복 작업이 남아있는지 확인
+brb cancel <job-id>              # 남은 것 개별 취소
 
-sudo make uninstall              # or: make uninstall-user
-rm -rf ~/.claude-brb             # remove job data
+sudo make uninstall              # 또는 make uninstall-user
+rm -rf ~/.claude-brb             # 작업 데이터 삭제
 ```
 
 ## Troubleshooting
 
-**"operation not permitted" or automation error on first run**
-macOS requires Automation permission. Go to System Settings > Privacy & Security > Automation and allow your terminal to control Terminal.app (or iTerm2).
+**"operation not permitted" 또는 Automation 오류가 뜰 때**
+macOS에서 Automation 권한이 필요합니다. System Settings > Privacy & Security > Automation에서 터미널 앱이 Terminal.app(또는 iTerm2)을 제어할 수 있도록 허용해 주세요.
 
-**Job didn't run (machine was asleep)**
-Run `brb setup` to configure passwordless `pmset` access. Check `~/.claude-brb/<job-id>.runlog` for `warn: pmset wake failed` entries.
+**Mac이 자고 있어서 작업이 안 돌았을 때**
+`brb setup`을 실행해서 passwordless `pmset`을 설정해 주세요. `~/.claude-brb/<job-id>.runlog`에 `warn: pmset wake failed`가 있는지도 확인해 보세요.
 
-**Job ran late**
-Check if `pmset wake` was scheduled: `pmset -g sched`. If no wake entry exists, run `brb setup` and then `brb upgrade` to regenerate scripts.
+**작업이 예정보다 늦게 돌았을 때**
+`pmset -g sched`로 wake 스케줄이 잡혀 있는지 확인하세요. 없으면 `brb setup` 후 `brb upgrade`로 스크립트를 다시 생성해 주세요.
 
-**"bootstrap failed" when creating a job**
-The launchd agent may already be loaded. Run `brb cancel <job-id>` to clean up, then recreate.
+**"bootstrap failed" 에러가 날 때**
+이미 로드된 launchd agent가 있을 수 있습니다. `brb cancel <job-id>`로 정리한 뒤 다시 만드세요.
 
 ## License
 
