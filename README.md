@@ -2,25 +2,62 @@
 
 Be right back with [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
 
-Claude Code는 훌륭하지만, 혼자 두면 멈춥니다.
-Rate limit이 걸리면 세션이 끊기고, 5시간이 지나면 타이머가 리셋되고,
-Mac이 잠들면 예약해둔 작업이 실행되지 않습니다.
+Claude Code를 오래 쓰다 보면 세 가지 벽에 부딪힙니다:
 
-**claude-brb**는 이 세 가지 문제를 해결합니다:
+1. **Rate limit** — 세션이 끊기고, 재개 가능 시간까지 기다려야 합니다
+2. **5시간 타이머** — 사용 제한이 리셋되어 흐름이 끊깁니다
+3. **Mac 잠자기** — 예약해둔 작업이 실행되지 않습니다
+
+claude-brb는 Claude Code의 **hook 시스템에 직접 연결**됩니다.
+세션이 끊기면 Claude Code가 직접 brb를 호출하고,
+brb가 재개 시간을 계산해서 launchd로 예약합니다.
+폴링도, 감시 프로세스도 없습니다. **이벤트 드리븐**입니다.
 
 ```bash
-brb setup  # 한 번만 실행하면 끝
+brew install PresenceWith/tap/claude-brb
+brb setup   # hook 등록 + wake 설정 + keep-alive — 한 번이면 끝
 ```
 
-- **Rate limit** → 자동으로 재개 시간을 계산해서 재예약
-- **5시간 타이머** → 주기적으로 리셋해서 끊김 방지
-- **Mac 잠자기** → pmset으로 깨워서 예약 작업 실행
-
-자기 전에 작업을 예약하면, 아침에 결과를 확인할 수 있습니다:
+이제 자기 전에 이렇게 하면:
 
 ```bash
 brb at 03:00 "Write unit tests for the auth module"
 ```
+
+아침에 결과를 확인할 수 있습니다.
+Rate limit이 걸려도, Mac이 잠들어도, brb가 알아서 처리합니다.
+
+## How It Works
+
+```
+Claude Code session
+        │
+        ├── rate limit hit
+        │       │
+        │       ▼
+        │   StopFailure hook ──▶ brb _hook-auto-resume
+        │                              │
+        │                              ├── parse reset time
+        │                              ├── schedule resume via launchd
+        │                              └── pmset wake (if sleeping)
+        │
+        ├── 5h timer approaching
+        │       │
+        │       ▼
+        │   keep-alive job ──▶ lightweight session reset
+        │
+        └── scheduled task
+                │
+                ▼
+            launchd fires ──▶ pmset wake ──▶ open Terminal ──▶ claude --resume
+```
+
+`brb setup`이 하는 일:
+- Claude Code `settings.json`에 **StopFailure hook** 등록
+- passwordless **pmset** 설정 (Mac 잠자기 해제)
+- **keep-alive** 반복 작업 등록 (5시간 타이머 리셋)
+
+외부 데몬이 아닙니다. macOS 네이티브 launchd + Claude Code 네이티브 hook입니다.
 
 ## Install
 
@@ -32,20 +69,14 @@ brb setup
 <details>
 <summary>Other methods</summary>
 
-### User-local
-
 ```bash
+# User-local
 git clone https://github.com/PresenceWith/claude-brb.git
 cd claude-brb
-make install-user    # ~/.local/bin/claude-brb + brb symlink
-brb setup
-```
+make install-user && brb setup
 
-### System-wide
-
-```bash
-sudo make install    # /usr/local/bin/claude-brb + brb symlink
-brb setup
+# System-wide
+sudo make install && brb setup
 ```
 
 </details>
@@ -62,7 +93,7 @@ brb at 03:00 -d /path/to/project "Write integration tests"
 # 이전 세션 이어서
 brb at +30m -s <session-id> "Continue where you left off"
 
-# 터미널 없이 백그라운드로 (headless)
+# 터미널 없이 백그라운드로
 brb at +30m -H "Review PR"
 
 # 매일 반복
@@ -77,39 +108,40 @@ brb
 
 ## Core Features
 
-### Auto-resume
+### Auto-resume — Claude Code hook으로 동작
 
-Rate limit으로 세션이 끊기면, 재개 가능 시간을 파싱해서 자동으로 재예약합니다.
+Claude Code의 StopFailure hook에 등록되어, rate limit으로 세션이 끊기는 순간 자동으로 트리거됩니다.
+에러 메시지에서 재개 가능 시간을 파싱하고, 해당 시간에 세션을 재예약합니다.
 30분 내 3회 이상 반복 중단되면 자동으로 멈춰서 무한 루프를 방지합니다.
 
 ```bash
-brb auto-resume enable    # 활성화
+brb auto-resume enable    # StopFailure hook 등록
 brb auto-resume status    # 상태 + 최근 이력
-brb auto-resume disable   # 비활성화
+brb auto-resume disable   # hook 제거
 ```
 
-### Keep-alive
+### Keep-alive — 5시간 타이머 리셋
 
-Claude Code의 5시간 사용 타이머가 리셋되지 않도록 주기적으로 경량 세션을 실행합니다.
+Claude Code의 5시간 사용 제한 타이머가 리셋되지 않도록 주기적으로 경량 headless 세션을 실행합니다.
 
 ```bash
-brb keep-alive enable              # 기본 간격으로 활성화
-brb keep-alive enable 01:00,06:00,11:00,16:00,21:00   # 커스텀 시간
+brb keep-alive enable                                  # 기본 간격
+brb keep-alive enable 01:00,06:00,11:00,16:00,21:00    # 커스텀 시간
 brb keep-alive disable
 ```
 
-### Headless Mode
+### Headless Mode — 터미널 없이 실행
 
-터미널 창 없이 백그라운드에서 실행합니다. CI 스타일 작업에 적합합니다.
+터미널 창 없이 `claude -p`로 실행합니다. CI 스타일 배치 작업에 적합합니다.
 
 ```bash
 brb at +30m -H "Analyze codebase and write report"
 brb at +30m -H -q "Background task"    # 출력도 폐기
 ```
 
-### Wake from Sleep
+### Wake from Sleep — Mac을 깨워서 실행
 
-Mac이 잠들어 있어도 예약 시간 2분 전에 깨워서 작업을 실행합니다.
+예약 시간 2분 전에 `pmset`으로 Mac을 깨웁니다.
 `brb setup`으로 한 번 설정하면 이후 자동으로 동작합니다.
 
 | 상태 | 깨움 | 작업 실행 |
@@ -215,19 +247,6 @@ brb at +30m "task that needs full permissions"
 - **Claude Code CLI** (`claude` command in PATH)
 - **bash 3.2+** (ships with macOS)
 - **Terminal.app** or **iTerm2**
-
-## How It Works
-
-1. Creates a **launchd** user agent (plist in `~/Library/LaunchAgents/`) with `StartCalendarInterval`
-2. At the scheduled time, launchd runs a **runner script** that:
-   - Schedules the next `pmset wake` (recurring jobs)
-   - Guards against duplicate runs within the minimum interval
-   - Wakes the display with `caffeinate -u`
-   - Displays a macOS notification
-   - Opens Terminal.app (or iTerm2) via AppleScript
-   - Runs an **exec script** inside the terminal that starts Claude Code with `caffeinate -i`
-3. For one-time jobs, the exec script cleans up all files after execution
-4. For recurring jobs, a `_next_wake.sh` helper calculates and registers the next wake time
 
 ## Uninstall
 
