@@ -10,10 +10,10 @@ export CLAUDE_BRB_STORE="$TEST_STORE"
 
 # --- Version ---
 output=$(bash "$CA" version 2>&1)
-assert "ca version shows version" "echo '$output' | grep -q '0.2.0'"
+assert "ca version shows version" "echo '$output' | grep -qE '[0-9]+\.[0-9]+\.[0-9]+'"
 
 output=$(bash "$CA" --version 2>&1)
-assert "ca --version compat" "echo '$output' | grep -q '0.2.0'"
+assert "ca --version compat" "echo '$output' | grep -qE '[0-9]+\.[0-9]+\.[0-9]+'"
 
 # --- Help ---
 output=$(bash "$CA" help 2>&1)

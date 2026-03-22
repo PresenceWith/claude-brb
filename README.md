@@ -3,8 +3,7 @@
 Be right back with [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
 
 Claude Code를 오래 쓰다 보면 귀찮은 일이 생깁니다.
-Rate limit 걸려서 세션이 끊기고, 5시간 타이머 때문에 흐름이 끊기고,
-Mac이 잠들어서 예약해둔 작업이 실행 안 되고.
+Rate limit 걸려서 세션이 끊기고, Mac이 잠들어서 예약해둔 작업이 실행 안 되고.
 
 claude-brb는 이걸 알아서 처리해 줍니다.
 Claude Code의 hook 시스템에 직접 물려서, 세션이 끊기는 순간 재개 시간을 계산하고 launchd로 예약합니다.
@@ -38,10 +37,10 @@ Claude Code session
         │                              ├── schedule resume via launchd
         │                              └── pmset wake (if sleeping)
         │
-        ├── 5h timer approaching
+        ├── rate limit prevention
         │       │
         │       ▼
-        │   keep-alive job ──▶ lightweight session reset
+        │   keep-alive job ──▶ 주기적으로 가벼운 세션을 돌려 사용량 윈도 유지
         │
         └── scheduled task
                 │
@@ -52,7 +51,7 @@ Claude Code session
 `brb setup`은 세 가지를 설정합니다:
 - Claude Code `settings.json`에 **StopFailure hook** 등록
 - passwordless **pmset** 설정 (잠자기 상태에서도 깨울 수 있게)
-- **keep-alive** 반복 작업 등록 (5시간 타이머 리셋용)
+- **keep-alive** 반복 작업 등록 (rate limit 걸리지 않도록 사용량 윈도 관리)
 
 별도 데몬 없이 macOS 네이티브 launchd와 Claude Code hook만 씁니다.
 
@@ -109,7 +108,7 @@ brb
 
 Claude Code의 StopFailure hook에 물려 있어서, rate limit으로 세션이 끊기면 바로 작동합니다.
 에러 메시지에서 재개 시간을 읽어와 그 시간에 맞춰 자동으로 다시 예약합니다.
-30분 안에 3번 이상 연속으로 끊기면 무한 루프 방지를 위해 자동으로 멈춥니다.
+같은 세션이 30분 안에 3번 이상 끊기면 무한 루프 방지를 위해 자동으로 멈춥니다.
 
 ```bash
 brb auto-resume enable    # StopFailure hook 등록
@@ -117,9 +116,9 @@ brb auto-resume status    # 상태 + 최근 이력
 brb auto-resume disable   # hook 제거
 ```
 
-### Keep-alive — 5시간 타이머가 끊기지 않게
+### Keep-alive — rate limit에 미리 대비
 
-주기적으로 가벼운 headless 세션을 돌려서 Claude Code의 5시간 사용 제한 타이머를 리셋합니다.
+주기적으로 가벼운 headless 세션을 돌려서 rate limit 사용량 윈도가 유리하게 유지되도록 합니다.
 
 ```bash
 brb keep-alive enable                                  # 기본 간격
@@ -157,7 +156,7 @@ brb auto-resume enable           enable auto-resume
 brb auto-resume disable          disable
 brb auto-resume status           status + recent history
 
-brb keep-alive enable [times]    enable 5h timer reset
+brb keep-alive enable [times]    enable rate limit prevention
 brb keep-alive disable           disable
 brb keep-alive status            status
 
