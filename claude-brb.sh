@@ -3,7 +3,7 @@
 set -euo pipefail
 umask 077
 
-VERSION="0.2.0"
+VERSION="0.3.0"
 
 # --- i18n: detect locale once, cache result ---
 _lang_code="${CLAUDE_BRB_LANG:-${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}}"
