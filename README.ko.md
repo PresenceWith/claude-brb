@@ -2,21 +2,20 @@
 
 Be right back with [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
 
-A tool that automatically resumes Claude Code sessions interrupted by rate limits.
-Set it up once and never worry about it again.
+Rate limit 때문에 끊긴 Claude Code 세션을 자동으로 다시 이어주는 도구입니다.
+한 번 설정하면 이후로는 신경 쓸 필요 없습니다.
 
-[한국어](README.ko.md)
+## 왜 필요한가
 
-## Why
+Claude Code는 rate limit에 걸리면 세션이 멈춥니다.
+재개 가능 시간까지 기다렸다가 수동으로 다시 시작해야 하고,
+Mac이 잠들어 있으면 그마저도 놓칩니다.
 
-When Claude Code hits a rate limit, the session stops.
-You have to wait for the reset time, then manually restart — and if your Mac is asleep, you miss it entirely.
+claude-brb는 이 과정을 자동화합니다:
 
-claude-brb automates this:
+- **Auto-resume** — rate limit으로 세션이 끊기면 Claude Code의 [StopFailure hook](https://docs.anthropic.com/en/docs/claude-code/hooks)이 brb를 호출합니다. 에러 메시지에서 재개 시간을 파싱하고, 그 시간에 launchd로 세션을 다시 예약합니다. Mac이 자고 있으면 `pmset`으로 깨워서 실행합니다.
 
-- **Auto-resume** — When a session is interrupted by a rate limit, Claude Code's [StopFailure hook](https://docs.anthropic.com/en/docs/claude-code/hooks) calls brb. It parses the reset time from the error message and schedules a resume via launchd. If the Mac is sleeping, `pmset` wakes it up.
-
-- **Keep-alive** — Runs lightweight headless sessions roughly every 5 hours to keep your rate limit usage window favorable.
+- **Keep-alive** — 약 5시간 간격으로 가벼운 headless 세션을 돌려서 rate limit 사용량 윈도를 유리하게 유지합니다.
 
 ## Install & Setup
 
@@ -25,12 +24,12 @@ brew install PresenceWith/tap/claude-brb
 brb setup
 ```
 
-`brb setup` configures three things:
-1. Registers a StopFailure hook in Claude Code's `settings.json`
-2. Sets up passwordless `pmset` (so it can wake from sleep)
-3. Registers the keep-alive recurring job
+`brb setup`은 세 가지를 설정합니다:
+1. Claude Code `settings.json`에 StopFailure hook 등록
+2. passwordless `pmset` 설정 (잠자기 상태에서도 깨울 수 있게)
+3. keep-alive 반복 작업 등록
 
-Each step asks Y/n, and you only need to do it once.
+각 단계마다 Y/n으로 물어보고, 한 번이면 끝입니다.
 
 ```
 $ brb
@@ -82,47 +81,47 @@ Claude Code session
             launchd fires ──▶ pmset wake ──▶ claude --resume
 ```
 
-No background daemons — just native macOS launchd and Claude Code hooks.
+별도 데몬 없이 macOS 네이티브 launchd와 Claude Code hook만 씁니다.
 
-When auto-resume restarts a session, Claude receives this prompt:
+Auto-resume으로 세션이 재개되면 Claude에게 이런 프롬프트가 전달됩니다:
 
 > *"You were interrupted by a rate limit. Review the conversation history and continue where you left off. Verify the current state before making changes. Do not repeat completed work."*
 
-If the same session is interrupted 3+ times within 30 minutes, it automatically stops to prevent infinite loops.
+같은 세션이 30분 안에 3번 이상 끊기면 무한 루프 방지를 위해 자동으로 멈춥니다.
 
 ## Session Scheduling
 
-Beyond auto-resume and keep-alive, you can schedule Claude Code sessions for any time.
+auto-resume과 keep-alive 외에, 원하는 시간에 Claude Code 세션을 예약할 수도 있습니다.
 
 ```bash
-# Start in 30 minutes
+# 30분 뒤에 시작
 brb at +30m "Refactor the database layer"
 
-# At 3 AM, in a specific project
+# 새벽 3시에, 특정 프로젝트에서
 brb at 03:00 -d /path/to/project "Write integration tests"
 
-# Resume a previous session
+# 이전 세션 이어서 하기
 brb at +30m -s <session-id> "Continue where you left off"
 
-# Headless (no terminal window)
+# 터미널 없이 백그라운드 실행 (headless)
 brb at +30m -H "Review PR"
 
-# Every day at 9 AM
+# 매일 아침 9시에
 brb every daily 09:00 "Check overnight changes"
 
-# Weekdays only, three times a day
+# 평일만, 하루 세 번
 brb every weekday 07:00,12:00,17:00 "Status check"
 ```
 
 ### Wake from Sleep
 
-`pmset` wakes the Mac 2 minutes before the scheduled time. Set up via `brb setup`.
+예약 시간 2분 전에 `pmset`으로 Mac을 깨웁니다. `brb setup`에서 설정합니다.
 
-| State | Wakes | Job runs |
-|-------|-------|----------|
-| Lid open, sleeping | Yes | Yes |
-| Lid closed + external monitor | Yes | Yes |
-| Lid closed, no monitor | Yes | **No** — can't open a terminal (use `-H` to work around) |
+| 상태 | 깨움 | 작업 실행 |
+|------|------|-----------|
+| 덮개 열림, 잠자기 | O | O |
+| 덮개 닫힘 + 외부 모니터 | O | O |
+| 덮개 닫힘, 모니터 없음 | O | **X** — 터미널을 열 수 없음 (`-H`로 우회 가능) |
 
 ## Reference
 
@@ -206,40 +205,40 @@ export CLAUDE_BRB_FLAGS="--dangerously-skip-permissions"
 brb at +30m "task that needs full permissions"
 ```
 
-> **Warning**: This disables all Claude Code permission checks. Scheduled jobs run unattended, so use with caution.
+> **Warning**: Claude Code의 모든 권한 검사를 끕니다. 예약 작업은 사람 없이 돌아가므로 주의해서 쓰세요.
 
 ## Troubleshooting
 
-**"operation not permitted" or Automation errors**
-Go to System Settings > Privacy & Security > Automation and allow your terminal app to control Terminal.app (or iTerm2).
+**"operation not permitted" 또는 Automation 오류**
+System Settings > Privacy & Security > Automation에서 터미널 앱이 Terminal.app(또는 iTerm2)을 제어할 수 있도록 허용해 주세요.
 
-**Job didn't run because Mac was sleeping**
-Run `brb setup` to configure passwordless `pmset`. Check `~/.claude-brb/<job-id>.runlog` for `warn: pmset wake failed`.
+**Mac이 자고 있어서 작업이 안 돌았을 때**
+`brb setup`으로 passwordless `pmset`을 설정하세요. `~/.claude-brb/<job-id>.runlog`에서 `warn: pmset wake failed`를 확인해 보세요.
 
-**Job ran later than scheduled**
-Check `pmset -g sched` for a wake schedule. If missing, run `brb setup` then `brb upgrade` to regenerate scripts.
+**작업이 예정보다 늦게 돌았을 때**
+`pmset -g sched`로 wake 스케줄이 잡혀 있는지 확인하세요. 없으면 `brb setup` 후 `brb upgrade`로 스크립트를 재생성하세요.
 
-**"bootstrap failed" error**
-A launchd agent may already be loaded. Clean up with `brb cancel <job-id>` and recreate.
+**"bootstrap failed" 에러**
+이미 로드된 launchd agent가 있을 수 있습니다. `brb cancel <job-id>`로 정리한 뒤 다시 만드세요.
 
 ## Uninstall
 
 ```bash
-brb teardown                     # remove hook, keep-alive, sudoers
-brb cancel all                   # cancel all one-time jobs
-brb list                         # check for remaining recurring jobs
-brb cancel <job-id>              # cancel individually
+brb teardown                     # hook, keep-alive, sudoers 제거
+brb cancel all                   # 일회성 작업 전부 취소
+brb list                         # 반복 작업이 남아있는지 확인
+brb cancel <job-id>              # 남은 것 개별 취소
 
-sudo make uninstall              # or: make uninstall-user
-rm -rf ~/.claude-brb             # remove job data
+sudo make uninstall              # 또는 make uninstall-user
+rm -rf ~/.claude-brb             # 작업 데이터 삭제
 ```
 
 ## Requirements
 
 - **macOS** (launchd, AppleScript, BSD date)
 - **Claude Code CLI** (`claude` in PATH)
-- **bash 3.2+** (included with macOS)
-- **Terminal.app** or **iTerm2**
+- **bash 3.2+** (macOS 기본 포함)
+- **Terminal.app** 또는 **iTerm2**
 
 ## License
 
