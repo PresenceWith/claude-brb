@@ -1768,6 +1768,14 @@ _hook_auto_resume() {
         return 1
     fi
 
+    # Atomic lock: only one hook instance per session proceeds
+    local lockdir="$STORE/.lock-ar-${session_id}"
+    if ! mkdir "$lockdir" 2>/dev/null; then
+        echo "[$(date)] DEDUP: lock held, skipping session ${session_id}" >> "$STORE/auto-resume.log"
+        return 0
+    fi
+    trap 'rmdir "$lockdir" 2>/dev/null; trap - RETURN' RETURN
+
     # Recency guard
     local guard_file="$STORE/.last-stop-${session_id}"
     local now

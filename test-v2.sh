@@ -71,6 +71,17 @@ echo '{"session_id":"time-parse-test","last_assistant_message":"You'\''ve hit yo
 sched_line=$(grep 'SCHEDULING:' "$TEST_STORE/auto-resume.log" 2>/dev/null | tail -1)
 assert "hook: parses reset time from last_assistant_message (not +5h)" "echo '$sched_line' | grep -qv '+5h'"
 
+# --- Concurrent hook dedup ---
+rm -f "$TEST_STORE"/auto-resume.log "$TEST_STORE"/.lock-ar-* "$TEST_STORE"/.last-stop-*
+# Simulate 3 parallel hooks for the same session
+for i in 1 2 3; do
+    echo '{"session_id":"dedup-test-session","last_assistant_message":"resets 6am (Asia/Seoul)","hook_event_name":"StopFailure","error":"rate_limit","cwd":"/tmp"}' \
+        | bash "$CA" _hook-auto-resume 2>/dev/null &
+done
+wait
+sched_count=$(grep -c 'SCHEDULING:.*dedup-test-session' "$TEST_STORE/auto-resume.log" 2>/dev/null || echo 0)
+assert "hook: concurrent dedup (expected 1, got $sched_count)" "[ '$sched_count' -le 1 ]"
+
 # --- Cleanup ---
 rm -rf "$TEST_STORE"
 echo ""
