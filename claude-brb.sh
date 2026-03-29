@@ -720,11 +720,16 @@ _auto_resume_cmd() {
             ;;
         disable)
             _settings_json_remove_hook
+            rm -f "$STORE/.auto-resume-bypass-permissions"
             echo "$(_t "✅ auto-resume disabled (hook removed)" "✅ auto-resume 비활성화됨 (hook 제거 완료)")"
             ;;
         status)
             if _settings_json_has_hook 2>/dev/null; then
-                echo "$(_t "auto-resume: enabled" "auto-resume: 활성")"
+                if [ -f "$STORE/.auto-resume-bypass-permissions" ]; then
+                    echo "$(_t "auto-resume: enabled (bypass-permissions: on)" "auto-resume: 활성 (bypass-permissions: on)")"
+                else
+                    echo "$(_t "auto-resume: enabled (bypass-permissions: off)" "auto-resume: 활성 (bypass-permissions: off)")"
+                fi
             else
                 echo "$(_t "auto-resume: disabled" "auto-resume: 비활성")"
             fi
@@ -1846,9 +1851,18 @@ _hook_auto_resume() {
         'You were interrupted by a rate limit. Review the conversation history and continue where you left off. Verify the current state before making changes. Do not repeat completed work.' \
         'Rate limit으로 작업이 중단되었습니다. 대화 기록을 검토하고 중단된 지점부터 이어서 진행하세요. 변경 전 현재 상태를 확인하고, 이미 완료된 작업은 반복하지 마세요.')}"
 
-    # Schedule resume (requires Task 7: 'at' subcommand — until then, falls through to old CLI)
+    # Bypass permissions flag (append to existing CLAUDE_BRB_FLAGS)
+    local ar_flags="${CLAUDE_BRB_FLAGS:-}"
+    if [ -f "$STORE/.auto-resume-bypass-permissions" ]; then
+        ar_flags="${ar_flags:+${ar_flags} }--dangerously-skip-permissions"
+    fi
+
+    # Log before scheduling so silent failures are diagnosable
+    echo "[$(date)] SCHEDULING: time=${schedule_time} session=${session_id}" >> "$STORE/auto-resume.log"
+
+    # Schedule resume
     local ca_output
-    if ca_output=$(_CLAUDE_BRB_SUBTYPE=auto-resume "$ca_bin" at "$schedule_time" -H -s "$session_id" "$resume_prompt" 2>&1); then
+    if ca_output=$(_CLAUDE_BRB_SUBTYPE=auto-resume CLAUDE_BRB_FLAGS="${ar_flags}" "$ca_bin" at "$schedule_time" -s "$session_id" "$resume_prompt" 2>&1); then
         local job_info
         job_info=$(echo "$ca_output" | grep -o 'Job ID: [^ ]*' | head -1 || echo "")
         _ar_notify "$(_t "auto-resume: scheduled at ${schedule_time}" "auto-resume: ${schedule_time}에 재개 예약됨") | brb cancel ${job_info##*: }" "success"
@@ -2110,7 +2124,11 @@ _status_summary() {
     echo ""
 
     if _settings_json_has_hook 2>/dev/null; then
-        echo "$(_t "auto-resume: enabled" "auto-resume: 활성")"
+        if [ -f "$STORE/.auto-resume-bypass-permissions" ]; then
+            echo "$(_t "auto-resume: enabled (bypass-permissions: on)" "auto-resume: 활성 (bypass-permissions: on)")"
+        else
+            echo "$(_t "auto-resume: enabled (bypass-permissions: off)" "auto-resume: 활성 (bypass-permissions: off)")"
+        fi
     else
         echo "$(_t "auto-resume: disabled" "auto-resume: 비활성")"
     fi
@@ -2168,6 +2186,31 @@ _full_setup() {
             *) _auto_resume_cmd enable ;;
         esac
     fi
+
+    # Step 2-1: bypass permissions for auto-resume
+    if _settings_json_has_hook 2>/dev/null; then
+        echo ""
+        echo "      $(_t "Bypass permissions: resume with --dangerously-skip-permissions" "권한 우회: --dangerously-skip-permissions로 재개")"
+        echo "      $(_t "When enabled, the resumed session skips all permission prompts." "활성화하면 재개된 세션에서 모든 권한 프롬프트를 건너뜁니다.")"
+        if [ -f "$STORE/.auto-resume-bypass-permissions" ]; then
+            echo "      $(_t "Currently: on" "현재: on")"
+            printf "      $(_t "Keep? [Y/n] " "유지할까요? [Y/n] ")"
+            local c; read -r c
+            case "${c:-Y}" in
+                n|N) rm -f "$STORE/.auto-resume-bypass-permissions"
+                     echo "      $(_t "Disabled." "비활성화됨.")" ;;
+                *)   echo "      $(_t "Kept." "유지됨.")" ;;
+            esac
+        else
+            printf "      $(_t "Enable? [y/N] " "활성화할까요? [y/N] ")"
+            local c; read -r c
+            case "$c" in
+                y|Y|yes|YES) touch "$STORE/.auto-resume-bypass-permissions"
+                             echo "      $(_t "Enabled." "활성화됨.")" ;;
+                *)           echo "      $(_t "Skipped." "건너뛰었습니다.")" ;;
+            esac
+        fi
+    fi
     echo ""
 
     # Step 3: keep-alive
@@ -2191,6 +2234,7 @@ _full_setup() {
 _teardown() {
     echo "[1/4] $(_t "Removing auto-resume hook..." "auto-resume hook 제거...")"
     _settings_json_remove_hook
+    rm -f "$STORE/.auto-resume-bypass-permissions"
     echo "      Done."
 
     echo "[2/4] $(_t "Cleaning up auto-resume jobs..." "auto-resume 예약 정리...")"

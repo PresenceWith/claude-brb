@@ -58,6 +58,12 @@ cat <<'EOF' | bash "$CA" _hook-auto-resume 2>/dev/null || true
 EOF
 assert "hook: log file created" "[ -f '$TEST_STORE/auto-resume.log' ]"
 
+# --- SCHEDULING log line present ---
+rm -f "$TEST_STORE"/auto-resume.log "$TEST_STORE"/.lock-ar-* "$TEST_STORE"/.last-stop-*
+echo '{"session_id":"log-test-abc","last_assistant_message":"resets 1am (Asia/Seoul)","hook_event_name":"StopFailure","error":"rate_limit","cwd":"/tmp"}' \
+    | bash "$CA" _hook-auto-resume 2>/dev/null || true
+assert "hook: SCHEDULING log line exists" "grep -q 'SCHEDULING:.*log-test-abc' '$TEST_STORE/auto-resume.log'"
+
 # --- Cleanup ---
 rm -rf "$TEST_STORE"
 echo ""
