@@ -1751,7 +1751,7 @@ _hook_auto_resume() {
             const d = JSON.parse(process.argv[1]);
             console.log([
                 d.session_id || '',
-                d.error_details || '',
+                d.error_details || d.last_assistant_message || '',
                 d.cwd || ''
             ].join('\n'));
         } catch(e) { process.exit(1); }
@@ -1793,7 +1793,7 @@ _hook_auto_resume() {
     echo "$now" >> "$guard_file"
     tail -3 "$guard_file" > "${guard_file}.tmp" && mv "${guard_file}.tmp" "$guard_file"
 
-    # Parse reset time from error_details using node
+    # Parse reset time from error_details or last_assistant_message
     local buffer_secs="${CLAUDE_BRB_RESUME_BUFFER_SECS:-300}"
     local schedule_time
     schedule_time=$(node -e "

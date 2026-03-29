@@ -64,6 +64,13 @@ echo '{"session_id":"log-test-abc","last_assistant_message":"resets 1am (Asia/Se
     | bash "$CA" _hook-auto-resume 2>/dev/null || true
 assert "hook: SCHEDULING log line exists" "grep -q 'SCHEDULING:.*log-test-abc' '$TEST_STORE/auto-resume.log'"
 
+# --- Reset time parsing from last_assistant_message ---
+rm -f "$TEST_STORE"/auto-resume.log "$TEST_STORE"/.lock-ar-* "$TEST_STORE"/.last-stop-*
+echo '{"session_id":"time-parse-test","last_assistant_message":"You'\''ve hit your limit · resets 6am (Asia/Seoul)","hook_event_name":"StopFailure","error":"rate_limit","cwd":"/tmp"}' \
+    | bash "$CA" _hook-auto-resume 2>/dev/null || true
+sched_line=$(grep 'SCHEDULING:' "$TEST_STORE/auto-resume.log" 2>/dev/null | tail -1)
+assert "hook: parses reset time from last_assistant_message (not +5h)" "echo '$sched_line' | grep -qv '+5h'"
+
 # --- Cleanup ---
 rm -rf "$TEST_STORE"
 echo ""
