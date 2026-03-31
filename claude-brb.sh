@@ -2208,6 +2208,12 @@ _status_summary() {
         echo "$(_t "keep-alive:  disabled" "keep-alive:  비활성")"
     fi
 
+    if [ -f "$STORE/.bypass-permissions" ]; then
+        echo "$(_t "bypass-permissions: enabled" "bypass-permissions: 활성")"
+    else
+        echo "$(_t "bypass-permissions: disabled" "bypass-permissions: 비활성")"
+    fi
+
     local count=0
     for f in "$STORE"/*.meta; do
         [ -f "$f" ] || continue
