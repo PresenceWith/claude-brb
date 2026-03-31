@@ -108,6 +108,21 @@ rm -f "$TEST_STORE"/*.sh
 resch_out=$(bash "$CA" at +3h -d /tmp "idempotent test prompt" 2>&1)
 assert "at: re-schedule after job completion (.sh removed)" "echo '$resch_out' | grep -qvF 'Already scheduled'"
 
+# --- bypass-permissions ---
+bp_out=$(bash "$CA" bypass-permissions status 2>&1)
+assert "bypass-permissions status (disabled)" "echo '$bp_out' | grep -qi 'disabled\|비활성'"
+
+bp_out=$(bash "$CA" bypass-permissions enable 2>&1)
+assert "bypass-permissions enable" "echo '$bp_out' | grep -qi 'enabled\|활성화'"
+assert "bypass-permissions sentinel created" "[ -f '$TEST_STORE/.bypass-permissions' ]"
+
+bp_out=$(bash "$CA" bypass-permissions status 2>&1)
+assert "bypass-permissions status (enabled)" "echo '$bp_out' | grep -qi 'enabled\|활성'"
+
+bp_out=$(bash "$CA" bypass-permissions disable 2>&1)
+assert "bypass-permissions disable" "echo '$bp_out' | grep -qi 'disabled\|비활성화'"
+assert "bypass-permissions sentinel removed" "[ ! -f '$TEST_STORE/.bypass-permissions' ]"
+
 # --- Cleanup ---
 rm -rf "$TEST_STORE"
 echo ""

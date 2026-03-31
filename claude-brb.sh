@@ -747,6 +747,29 @@ _auto_resume_cmd() {
     esac
 }
 
+_bypass_permissions_cmd() {
+    local action="${1:-status}"
+    case "$action" in
+        enable)
+            mkdir -p "$STORE"
+            touch "$STORE/.bypass-permissions"
+            echo "$(_t "✅ bypass-permissions enabled (at/every jobs)" "✅ bypass-permissions 활성화됨 (at/every 작업에 적용)")"
+            ;;
+        disable)
+            rm -f "$STORE/.bypass-permissions"
+            echo "$(_t "✅ bypass-permissions disabled" "✅ bypass-permissions 비활성화됨")"
+            ;;
+        status)
+            if [ -f "$STORE/.bypass-permissions" ]; then
+                echo "$(_t "bypass-permissions: enabled" "bypass-permissions: 활성")"
+            else
+                echo "$(_t "bypass-permissions: disabled" "bypass-permissions: 비활성")"
+            fi
+            ;;
+        *) _err "Usage: brb bypass-permissions {enable|disable|status}"; return 1 ;;
+    esac
+}
+
 _keep_alive_cmd() {
     local action="${1:-status}"
     case "$action" in
@@ -2413,6 +2436,7 @@ case "${1:-}" in
     # Core features
     auto-resume) shift; _auto_resume_cmd "${1:-status}"; exit 0 ;;
     keep-alive)  shift; _keep_alive_cmd "$@"; exit 0 ;;
+    bypass-permissions) shift; _bypass_permissions_cmd "${1:-status}"; exit 0 ;;
 
     # Management
     list)       list_jobs; exit $? ;;
