@@ -169,6 +169,14 @@ assert "show: displays Bypass" "echo '$show_out' | grep -q 'Bypass:.*yes'"
 list_out=$(bash "$CA" list 2>&1)
 assert "list: [B] marker for bypass job" "echo '$list_out' | grep -q '\[B\]'"
 
+# --- teardown cleans up .bypass-permissions ---
+touch "$TEST_STORE/.bypass-permissions"
+export _SETTINGS_PATH="$TEST_STORE/test-settings-teardown.json"
+bash "$CA" teardown 2>&1 >/dev/null
+assert "teardown: removes .bypass-permissions" "[ ! -f '$TEST_STORE/.bypass-permissions' ]"
+unset _SETTINGS_PATH
+export _SETTINGS_PATH="$TEST_STORE/test-settings.json"
+
 # --- Cleanup ---
 rm -rf "$TEST_STORE"
 echo ""

@@ -2333,6 +2333,7 @@ _teardown() {
     echo "[1/4] $(_t "Removing auto-resume hook..." "auto-resume hook 제거...")"
     _settings_json_remove_hook
     rm -f "$STORE/.auto-resume-bypass-permissions"
+    rm -f "$STORE/.bypass-permissions"
     echo "      Done."
 
     echo "[2/4] $(_t "Cleaning up auto-resume jobs..." "auto-resume 예약 정리...")"
