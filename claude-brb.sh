@@ -71,6 +71,10 @@ Usage:
   brb keep-alive disable           비활성화
   brb keep-alive status            상태
 
+  brb bypass-permissions enable    글로벌 bypass-permissions 활성화
+  brb bypass-permissions disable   비활성화
+  brb bypass-permissions status    상태
+
   # 일회성 예약
   brb at <time> "prompt"                    현재 디렉터리에서 새 세션
   brb at <time> -d <dir> "prompt"           지정 디렉터리
@@ -114,6 +118,7 @@ Flags:
   -s <sid>      세션 재개 (일회성만)
   -H            헤드리스 모드 (터미널 없이 실행)
   -q            출력 폐기 (-H와 함께)
+  -B            bypass permissions (--dangerously-skip-permissions)
 
 Environment:
   CLAUDE_BRB_TERMINAL           터미널 앱 (Terminal, iTerm2)   [기본: Terminal]
@@ -133,6 +138,7 @@ Examples:
   brb at +1h -H -q "Background task"                헤드리스 (출력 폐기)
   brb auto-resume enable                            자동 재개 활성화
   brb keep-alive enable                             5시간 리셋 활성화
+  brb at +30m -B "Review PR"                        bypass permissions
 HELP
     else
         cat <<'HELP'
@@ -147,6 +153,10 @@ Usage:
   brb keep-alive enable [times]    enable 5h timer reset
   brb keep-alive disable           disable
   brb keep-alive status            status
+
+  brb bypass-permissions enable    enable global bypass-permissions
+  brb bypass-permissions disable   disable
+  brb bypass-permissions status    status
 
   # One-time scheduling
   brb at <time> "prompt"                    new session in current dir
@@ -191,6 +201,7 @@ Flags:
   -s <sid>      resume session (one-time only)
   -H            headless mode (no terminal)
   -q            discard output (use with -H)
+  -B            bypass permissions (--dangerously-skip-permissions)
 
 Environment:
   CLAUDE_BRB_TERMINAL           terminal app (Terminal, iTerm2)   [default: Terminal]
@@ -210,6 +221,7 @@ Examples:
   brb at +1h -H -q "Background task"                headless, discard output
   brb auto-resume enable                            enable auto-resume
   brb keep-alive enable                             enable 5h timer reset
+  brb at +30m -B "Review PR"                        bypass permissions
 HELP
     fi
     exit 0
