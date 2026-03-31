@@ -1369,13 +1369,17 @@ list_jobs() {
         local m_headless m_quiet
         m_headless=$(_read_meta "$f" META_HEADLESS)
         m_quiet=$(_read_meta "$f" META_QUIET)
+        local markers=""
         if [ "${m_headless:-}" = "yes" ]; then
-            if [ "${m_quiet:-}" = "yes" ]; then
-                target_display="[Hq] ${target_display}"
-            else
-                target_display="[H] ${target_display}"
-            fi
+            markers="H"
+            [ "${m_quiet:-}" = "yes" ] && markers="${markers}q"
         fi
+        local m_flags
+        m_flags=$(_read_meta "$f" META_FLAGS)
+        if [[ "${m_flags:-}" == *"--dangerously-skip-permissions"* ]]; then
+            markers="${markers}B"
+        fi
+        [ -n "$markers" ] && target_display="[${markers}] ${target_display}"
 
         prompt_display=""
         [ -f "$STORE/${fname}.prompt" ] && prompt_display=$(head -1 "$STORE/${fname}.prompt" | cut -c1-50)

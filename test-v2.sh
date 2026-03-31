@@ -152,6 +152,10 @@ no_bp_out=$(bash "$CA" at +5h -d /tmp "no bp test" 2>&1)
 no_bp_jid=$(echo "$no_bp_out" | grep -o 'Job ID: [^ )]*' | head -1 | sed 's/Job ID: //')
 assert "at: no BP means no flag" "! grep -q 'dangerously-skip-permissions' '$TEST_STORE/${no_bp_jid}.meta'"
 
+# --- list shows [B] marker ---
+list_out=$(bash "$CA" list 2>&1)
+assert "list: [B] marker for bypass job" "echo '$list_out' | grep -q '\[B\]'"
+
 # --- Cleanup ---
 rm -rf "$TEST_STORE"
 echo ""
