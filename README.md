@@ -28,18 +28,20 @@ brb setup
 brew upgrade claude-brb
 ```
 
-`brb setup` configures three things:
-1. Registers a StopFailure hook in Claude Code's `settings.json`
-2. Sets up passwordless `pmset` (so it can wake from sleep)
-3. Registers the keep-alive recurring job
+`brb setup` configures four things:
+1. Sets up passwordless `pmset` (so it can wake from sleep)
+2. Registers a StopFailure hook in Claude Code's `settings.json` (auto-resume)
+3. Configures bypass-permissions for scheduled jobs
+4. Registers the keep-alive recurring job
 
 Each step asks Y/n, and you only need to do it once.
 
 ```
 $ brb
-claude-brb 0.3.3
+claude-brb 0.3.4
 
-auto-resume: enabled
+auto-resume: enabled (bypass-permissions: on)
+bypass-permissions: disabled
 keep-alive:  enabled (00:01,05:02,10:03,15:04,20:05)
 
 Scheduled jobs: 0 jobs
@@ -138,6 +140,10 @@ brb keep-alive enable [times]    enable rate limit prevention
 brb keep-alive disable           disable
 brb keep-alive status            status
 
+brb bypass-permissions enable    enable global bypass-permissions
+brb bypass-permissions disable   disable
+brb bypass-permissions status    status
+
 brb at <time> "prompt"                    new session in current dir
 brb at <time> -d <dir> "prompt"           in specified dir
 brb at <time> -s <session-id> "prompt"    resume session
@@ -187,6 +193,7 @@ brb                              status summary
 | `-s <sid>` | Resume session (one-time only) |
 | `-H` | Headless mode (no terminal window) |
 | `-q` | Discard output (use with `-H`) |
+| `-B` | Bypass permissions (`--dangerously-skip-permissions`) |
 
 ## Configuration
 
@@ -204,10 +211,27 @@ brb                              status summary
 
 ### `--dangerously-skip-permissions`
 
+**Global setting** — applies to all `at`/`every` jobs:
+
+```bash
+brb bypass-permissions enable
+```
+
+**Per-job flag:**
+
+```bash
+brb at +30m -B "task that needs full permissions"
+brb every daily 09:00 -B "daily task"
+```
+
+**Environment variable** (legacy):
+
 ```bash
 export CLAUDE_BRB_FLAGS="--dangerously-skip-permissions"
-brb at +30m "task that needs full permissions"
+brb at +30m "task"
 ```
+
+Auto-resume bypass-permissions is configured separately during `brb setup`.
 
 > **Warning**: This disables all Claude Code permission checks. Scheduled jobs run unattended, so use with caution.
 

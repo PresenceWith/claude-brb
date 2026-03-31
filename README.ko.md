@@ -27,18 +27,20 @@ brb setup
 brew upgrade claude-brb
 ```
 
-`brb setup`은 세 가지를 설정합니다:
-1. Claude Code `settings.json`에 StopFailure hook 등록
-2. passwordless `pmset` 설정 (잠자기 상태에서도 깨울 수 있게)
-3. keep-alive 반복 작업 등록
+`brb setup`은 네 가지를 설정합니다:
+1. passwordless `pmset` 설정 (잠자기 상태에서도 깨울 수 있게)
+2. Claude Code `settings.json`에 StopFailure hook 등록 (auto-resume)
+3. 예약 작업 bypass-permissions 설정
+4. keep-alive 반복 작업 등록
 
 각 단계마다 Y/n으로 물어보고, 한 번이면 끝입니다.
 
 ```
 $ brb
-claude-brb 0.3.3
+claude-brb 0.3.4
 
-auto-resume: enabled
+auto-resume: enabled (bypass-permissions: on)
+bypass-permissions: disabled
 keep-alive:  enabled (00:01,05:02,10:03,15:04,20:05)
 
 Scheduled jobs: 0 jobs
@@ -137,6 +139,10 @@ brb keep-alive enable [times]    enable rate limit prevention
 brb keep-alive disable           disable
 brb keep-alive status            status
 
+brb bypass-permissions enable    글로벌 bypass-permissions 활성화
+brb bypass-permissions disable   비활성화
+brb bypass-permissions status    상태
+
 brb at <time> "prompt"                    new session in current dir
 brb at <time> -d <dir> "prompt"           in specified dir
 brb at <time> -s <session-id> "prompt"    resume session
@@ -186,6 +192,7 @@ brb                              status summary
 | `-s <sid>` | Resume session (one-time only) |
 | `-H` | Headless mode (no terminal window) |
 | `-q` | Discard output (use with `-H`) |
+| `-B` | Bypass permissions (`--dangerously-skip-permissions`) |
 
 ## Configuration
 
@@ -203,10 +210,27 @@ brb                              status summary
 
 ### `--dangerously-skip-permissions`
 
+**글로벌 설정** — 모든 `at`/`every` 작업에 적용:
+
+```bash
+brb bypass-permissions enable
+```
+
+**개별 작업 플래그:**
+
+```bash
+brb at +30m -B "권한이 필요한 작업"
+brb every daily 09:00 -B "매일 작업"
+```
+
+**환경변수** (레거시):
+
 ```bash
 export CLAUDE_BRB_FLAGS="--dangerously-skip-permissions"
-brb at +30m "task that needs full permissions"
+brb at +30m "작업"
 ```
+
+Auto-resume bypass-permissions는 `brb setup`에서 별도로 설정합니다.
 
 > **Warning**: Claude Code의 모든 권한 검사를 끕니다. 예약 작업은 사람 없이 돌아가므로 주의해서 쓰세요.
 
