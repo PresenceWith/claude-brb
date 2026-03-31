@@ -3,7 +3,7 @@
 set -euo pipefail
 umask 077
 
-VERSION="0.3.2"
+VERSION="0.3.3"
 
 # --- i18n: detect locale once, cache result ---
 _lang_code="${CLAUDE_BRB_LANG:-${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}}"
@@ -716,6 +716,7 @@ _auto_resume_cmd() {
             fi
 
             _settings_json_add_hook "$ca_path _hook-auto-resume"
+            mkdir -p "$STORE"
             touch "$STORE/.auto-resume-bypass-permissions"
             echo "$(_t "✅ auto-resume enabled (StopFailure hook registered, bypass-permissions: on)" "✅ auto-resume 활성화됨 (StopFailure hook 등록 완료, bypass-permissions: on)")"
             ;;
@@ -2183,6 +2184,7 @@ _status_summary() {
 }
 
 _full_setup() {
+    mkdir -p "$STORE"
     echo "claude-brb $(_t "initial setup" "초기 설정")"
     echo "━━━━━━━━━━━━━━━━━━"
     echo ""
