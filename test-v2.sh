@@ -152,6 +152,11 @@ no_bp_out=$(bash "$CA" at +5h -d /tmp "no bp test" 2>&1)
 no_bp_jid=$(echo "$no_bp_out" | grep -o 'Job ID: [^ )]*' | head -1 | sed 's/Job ID: //')
 assert "at: no BP means no flag" "! grep -q 'dangerously-skip-permissions' '$TEST_STORE/${no_bp_jid}.meta'"
 
+# --- show displays Bypass: yes ---
+# Use the bp_jid from earlier -B flag test
+show_out=$(bash "$CA" show "$bp_jid" 2>&1)
+assert "show: displays Bypass" "echo '$show_out' | grep -q 'Bypass:.*yes'"
+
 # --- list shows [B] marker ---
 list_out=$(bash "$CA" list 2>&1)
 assert "list: [B] marker for bypass job" "echo '$list_out' | grep -q '\[B\]'"

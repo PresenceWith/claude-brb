@@ -2410,6 +2410,7 @@ show_job() {
     [ "$META_TYPE" = "repeat" ] && echo "Schedule:  ${META_SCHEDULE} ${META_TIMES}"
     [ "$META_HEADLESS" = "yes" ] && echo "Headless:  yes"
     [ "$META_QUIET" = "yes" ] && echo "Quiet:     yes"
+    [[ "${META_FLAGS:-}" == *"--dangerously-skip-permissions"* ]] && echo "Bypass:    yes"
     [ -n "$META_FLAGS" ] && echo "Flags:     ${META_FLAGS}"
     if [ -f "$prompt_file" ]; then
         local prompt_content
