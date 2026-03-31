@@ -1911,6 +1911,7 @@ _parse_at_flags() {
     # Sets: _FLAG_DIR, _FLAG_SID, _HEADLESS, _QUIET
     _FLAG_DIR=""
     _FLAG_SID=""
+    _BYPASS_PERMISSIONS=""
     _REMAINING_ARGS=()
     local i=0
 
@@ -1922,6 +1923,7 @@ _parse_at_flags() {
             -s) i=$((i + 1)); idx=$((i + 1)); _FLAG_SID="${!idx:-}"; [ -z "$_FLAG_SID" ] && { _err "Error: -s requires session ID"; exit 1; } ;;
             -H|--headless) _HEADLESS='yes' ;;
             -q|--quiet) _QUIET='yes' ;;
+            -B|--bypass-permissions) _BYPASS_PERMISSIONS='yes' ;;
             *) _REMAINING_ARGS+=("$arg") ;;
         esac
         i=$((i + 1))
@@ -2031,9 +2033,14 @@ _schedule_at() {
     done
 
     _HL_FLAGS="$CLAUDE_BRB_FLAGS"
-    if [ "$_HEADLESS" = 'yes' ]; then
-        extra_flag=$(_headless_perm_check "$CLAUDE_BRB_FLAGS")
-        [ -n "$extra_flag" ] && _HL_FLAGS="${CLAUDE_BRB_FLAGS:+${CLAUDE_BRB_FLAGS} }${extra_flag}"
+    # Apply bypass-permissions: -B flag or global setting
+    if [ "$_BYPASS_PERMISSIONS" = 'yes' ] || [ -f "$STORE/.bypass-permissions" ]; then
+        if [[ "$_HL_FLAGS" != *"--dangerously-skip-permissions"* ]]; then
+            _HL_FLAGS="${_HL_FLAGS:+${_HL_FLAGS} }--dangerously-skip-permissions"
+        fi
+    elif [ "$_HEADLESS" = 'yes' ]; then
+        extra_flag=$(_headless_perm_check "$_HL_FLAGS")
+        [ -n "$extra_flag" ] && _HL_FLAGS="${_HL_FLAGS:+${_HL_FLAGS} }${extra_flag}"
     fi
 
     printf '%s' "$PROMPT" | _atomic_write "$STORE/${JOB_ID}.prompt"
@@ -2130,9 +2137,14 @@ _schedule_every() {
     JOB_ID=$(_make_job_id "rpt.${RPT_SCHED_ID}")
 
     _HL_FLAGS="$CLAUDE_BRB_FLAGS"
-    if [ "$_HEADLESS" = 'yes' ]; then
-        extra_flag=$(_headless_perm_check "$CLAUDE_BRB_FLAGS")
-        [ -n "$extra_flag" ] && _HL_FLAGS="${CLAUDE_BRB_FLAGS:+${CLAUDE_BRB_FLAGS} }${extra_flag}"
+    # Apply bypass-permissions: -B flag or global setting
+    if [ "$_BYPASS_PERMISSIONS" = 'yes' ] || [ -f "$STORE/.bypass-permissions" ]; then
+        if [[ "$_HL_FLAGS" != *"--dangerously-skip-permissions"* ]]; then
+            _HL_FLAGS="${_HL_FLAGS:+${_HL_FLAGS} }--dangerously-skip-permissions"
+        fi
+    elif [ "$_HEADLESS" = 'yes' ]; then
+        extra_flag=$(_headless_perm_check "$_HL_FLAGS")
+        [ -n "$extra_flag" ] && _HL_FLAGS="${_HL_FLAGS:+${_HL_FLAGS} }${extra_flag}"
     fi
 
     printf '%s' "$PROMPT" | _atomic_write "$STORE/${JOB_ID}.prompt"

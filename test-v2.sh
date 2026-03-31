@@ -123,6 +123,13 @@ bp_out=$(bash "$CA" bypass-permissions disable 2>&1)
 assert "bypass-permissions disable" "echo '$bp_out' | grep -qi 'disabled\|비활성화'"
 assert "bypass-permissions sentinel removed" "[ ! -f '$TEST_STORE/.bypass-permissions' ]"
 
+# --- -B flag ---
+bp_flag_out=$(bash "$CA" at +3h -B -d /tmp "bypass flag test" 2>&1)
+assert "at -B: schedule succeeds" "echo '$bp_flag_out' | grep -qF 'Job ID:'"
+# Check META_FLAGS contains --dangerously-skip-permissions
+bp_jid=$(echo "$bp_flag_out" | grep -o 'Job ID: [^ )]*' | head -1 | sed 's/Job ID: //')
+assert "at -B: META_FLAGS has dangerously-skip-permissions" "grep -q 'dangerously-skip-permissions' '$TEST_STORE/${bp_jid}.meta'"
+
 # --- Cleanup ---
 rm -rf "$TEST_STORE"
 echo ""
