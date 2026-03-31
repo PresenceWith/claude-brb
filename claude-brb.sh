@@ -2233,7 +2233,7 @@ _full_setup() {
     echo ""
 
     # Step 1: pmset
-    echo "[1/3] $(_t "Wake-from-sleep permissions" "Wake-from-sleep 권한 설정")"
+    echo "[1/4] $(_t "Wake-from-sleep permissions" "Wake-from-sleep 권한 설정")"
     if _can_pmset_sudo; then
         echo "      $(_t "Already configured. Skipping." "이미 설정되어 있습니다. 건너뜁니다.")"
     else
@@ -2248,7 +2248,7 @@ _full_setup() {
     echo ""
 
     # Step 2: auto-resume
-    echo "[2/3] $(_t "Auto-resume" "Auto-resume 활성화")"
+    echo "[2/4] $(_t "Auto-resume" "Auto-resume 활성화")"
     if _settings_json_has_hook 2>/dev/null; then
         echo "      $(_t "Already enabled. Skipping." "이미 활성화되어 있습니다. 건너뜁니다.")"
     else
@@ -2287,8 +2287,32 @@ _full_setup() {
     fi
     echo ""
 
-    # Step 3: keep-alive
-    echo "[3/3] $(_t "Keep-alive" "Keep-alive 활성화")"
+    # Step 3: global bypass-permissions
+    echo "[3/4] $(_t "Bypass-permissions (global)" "Bypass-permissions (글로벌 설정)")"
+    echo "      $(_t "Runs at/every jobs with --dangerously-skip-permissions." "예약 작업(at/every)을 --dangerously-skip-permissions로 실행합니다.")"
+    echo "      $(_t "When enabled, scheduled sessions skip all permission prompts." "활성화하면 예약된 세션에서 모든 권한 프롬프트를 건너뜁니다.")"
+    if [ -f "$STORE/.bypass-permissions" ]; then
+        echo "      $(_t "Currently: on" "현재: on")"
+        printf "      $(_t "Keep? [Y/n] " "유지할까요? [Y/n] ")"
+        local c; read -r c
+        case "${c:-Y}" in
+            n|N) rm -f "$STORE/.bypass-permissions"
+                 echo "      $(_t "Disabled." "비활성화됨.")" ;;
+            *)   echo "      $(_t "Kept." "유지됨.")" ;;
+        esac
+    else
+        printf "      $(_t "Enable? [y/N] " "활성화할까요? [y/N] ")"
+        local c; read -r c
+        case "${c:-N}" in
+            y|Y) touch "$STORE/.bypass-permissions"
+                 echo "      $(_t "Enabled." "활성화됨.")" ;;
+            *)   echo "      $(_t "Skipped." "건너뛰었습니다.")" ;;
+        esac
+    fi
+    echo ""
+
+    # Step 4: keep-alive
+    echo "[4/4] $(_t "Keep-alive" "Keep-alive 활성화")"
     if [ -f "$STORE/rpt.keep-alive.meta" ] && [ -f "$STORE/rpt.keep-alive.sh" ]; then
         echo "      $(_t "Already enabled. Skipping." "이미 활성화되어 있습니다. 건너뜁니다.")"
     else
