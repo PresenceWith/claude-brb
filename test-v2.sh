@@ -186,6 +186,16 @@ assert "at -H -B: META_FLAGS has bypass" "grep -q 'dangerously-skip-permissions'
 e2e_list=$(bash "$CA" list 2>&1)
 assert "list: shows [HB] marker" "echo '$e2e_list' | grep -q '\[HB\]'"
 
+# --- bare at invocation (no flags) ---
+bare_out=$(cd /tmp && bash "$CA" at +6h "bare test" 2>&1)
+assert "at: bare invocation without flags" "echo '$bare_out' | grep -qF 'Job ID:'"
+
+# --- every -B flag ---
+every_bp_out=$(bash "$CA" every daily 09:00 -B -d /tmp "every bypass test" 2>&1)
+assert "every -B: schedule succeeds" "echo '$every_bp_out' | grep -qF 'Job ID:'"
+every_bp_jid=$(echo "$every_bp_out" | grep -o 'Job ID: [^ )]*' | head -1 | sed 's/Job ID: //')
+assert "every -B: META_FLAGS has dangerously-skip-permissions" "grep -q 'dangerously-skip-permissions' '$TEST_STORE/${every_bp_jid}.meta'"
+
 # --- Cleanup ---
 rm -rf "$TEST_STORE"
 echo ""

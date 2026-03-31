@@ -1922,7 +1922,7 @@ _hook_auto_resume() {
 
 _parse_at_flags() {
     # Parses flags from argument list between time and prompt
-    # Sets: _FLAG_DIR, _FLAG_SID, _HEADLESS, _QUIET
+    # Sets: _FLAG_DIR, _FLAG_SID, _HEADLESS, _QUIET, _BYPASS_PERMISSIONS
     _FLAG_DIR=""
     _FLAG_SID=""
     _BYPASS_PERMISSIONS=""
@@ -1959,6 +1959,7 @@ _schedule_at() {
 
     _FLAG_DIR=""
     _FLAG_SID=""
+    _BYPASS_PERMISSIONS="${_BYPASS_PERMISSIONS:-}"
     local TIME_STR="$1"; shift
     local PROMPT="${!#}"  # last argument
 
@@ -2103,6 +2104,7 @@ _schedule_every() {
 
     _FLAG_DIR=""
     _FLAG_SID=""
+    _BYPASS_PERMISSIONS="${_BYPASS_PERMISSIONS:-}"
     local RPT_SCHEDULE="$1"; shift
     local RPT_TIMES="$1"; shift
     local PROMPT="${!#}"  # last argument
