@@ -717,12 +717,10 @@ _auto_resume_cmd() {
 
             _settings_json_add_hook "$ca_path _hook-auto-resume"
             mkdir -p "$STORE"
-            touch "$STORE/.auto-resume-bypass-permissions"
-            echo "$(_t "✅ auto-resume enabled (StopFailure hook registered, bypass-permissions: on)" "✅ auto-resume 활성화됨 (StopFailure hook 등록 완료, bypass-permissions: on)")"
+            echo "$(_t "✅ auto-resume enabled (StopFailure hook registered)" "✅ auto-resume 활성화됨 (StopFailure hook 등록 완료)")"
             ;;
         disable)
             _settings_json_remove_hook
-            rm -f "$STORE/.auto-resume-bypass-permissions"
             echo "$(_t "✅ auto-resume disabled (hook removed)" "✅ auto-resume 비활성화됨 (hook 제거 완료)")"
             ;;
         status)

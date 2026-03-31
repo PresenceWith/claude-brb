@@ -130,6 +130,15 @@ assert "at -B: schedule succeeds" "echo '$bp_flag_out' | grep -qF 'Job ID:'"
 bp_jid=$(echo "$bp_flag_out" | grep -o 'Job ID: [^ )]*' | head -1 | sed 's/Job ID: //')
 assert "at -B: META_FLAGS has dangerously-skip-permissions" "grep -q 'dangerously-skip-permissions' '$TEST_STORE/${bp_jid}.meta'"
 
+# --- auto-resume enable no longer creates .auto-resume-bypass-permissions ---
+rm -f "$TEST_STORE/.auto-resume-bypass-permissions"
+export _SETTINGS_PATH="$TEST_STORE/test-settings-decouple.json"
+bash "$CA" auto-resume enable 2>&1 >/dev/null
+assert "auto-resume enable: no bypass-permissions file" "[ ! -f '$TEST_STORE/.auto-resume-bypass-permissions' ]"
+bash "$CA" auto-resume disable 2>&1 >/dev/null
+unset _SETTINGS_PATH
+export _SETTINGS_PATH="$TEST_STORE/test-settings.json"
+
 # --- Global bypass-permissions applies to at/every ---
 touch "$TEST_STORE/.bypass-permissions"
 global_bp_out=$(bash "$CA" at +4h -d /tmp "global bp test" 2>&1)
