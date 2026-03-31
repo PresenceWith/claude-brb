@@ -716,7 +716,8 @@ _auto_resume_cmd() {
             fi
 
             _settings_json_add_hook "$ca_path _hook-auto-resume"
-            echo "$(_t "✅ auto-resume enabled (StopFailure hook registered)" "✅ auto-resume 활성화됨 (StopFailure hook 등록 완료)")"
+            touch "$STORE/.auto-resume-bypass-permissions"
+            echo "$(_t "✅ auto-resume enabled (StopFailure hook registered, bypass-permissions: on)" "✅ auto-resume 활성화됨 (StopFailure hook 등록 완료, bypass-permissions: on)")"
             ;;
         disable)
             _settings_json_remove_hook
@@ -1768,14 +1769,6 @@ _hook_auto_resume() {
         return 1
     fi
 
-    # Atomic lock: only one hook instance per session proceeds
-    local lockdir="$STORE/.lock-ar-${session_id}"
-    if ! mkdir "$lockdir" 2>/dev/null; then
-        echo "[$(date)] DEDUP: lock held, skipping session ${session_id}" >> "$STORE/auto-resume.log"
-        return 0
-    fi
-    trap 'rmdir "$lockdir" 2>/dev/null; trap - RETURN' RETURN
-
     # Recency guard
     local guard_file="$STORE/.last-stop-${session_id}"
     local now
@@ -1873,8 +1866,12 @@ _hook_auto_resume() {
     if ca_output=$(_CLAUDE_BRB_SUBTYPE=auto-resume CLAUDE_BRB_FLAGS="${ar_flags}" "$ca_bin" at "$schedule_time" -s "$session_id" "$resume_prompt" 2>&1); then
         local job_info
         job_info=$(echo "$ca_output" | grep -o 'Job ID: [^ ]*' | head -1 || echo "")
-        _ar_notify "$(_t "auto-resume: scheduled at ${schedule_time}" "auto-resume: ${schedule_time}에 재개 예약됨") | brb cancel ${job_info##*: }" "success"
-        echo "[$(date)] SCHEDULED: ${schedule_time} session=${session_id} ${job_info}" >> "$STORE/auto-resume.log"
+        if echo "$ca_output" | grep -q 'Already scheduled'; then
+            echo "[$(date)] DEDUP: idempotent skip session=${session_id} ${job_info}" >> "$STORE/auto-resume.log"
+        else
+            _ar_notify "$(_t "auto-resume: scheduled at ${schedule_time}" "auto-resume: ${schedule_time}에 재개 예약됨") | brb cancel ${job_info##*: }" "success"
+            echo "[$(date)] SCHEDULED: ${schedule_time} session=${session_id} ${job_info}" >> "$STORE/auto-resume.log"
+        fi
     else
         _ar_notify "$(_t 'auto-resume: scheduling failed' 'auto-resume: 예약 실패')" "error"
         echo "[$(date)] FAILED: brb exit=$? output=$ca_output" >> "$STORE/auto-resume.log"
@@ -1984,6 +1981,30 @@ _schedule_at() {
     target_day=$((10#$(date -r "$target" +%d)))
     target_month=$((10#$(date -r "$target" +%m)))
     target_ymd=$(date -r "$target" +%Y%m%d)
+
+    # Idempotent scheduling: reject if identical pending job exists
+    # auto-resume: match session_id + prompt (time may drift ±1min across hooks)
+    # manual:      match dir + schedule_time + prompt
+    for _dup_meta in "$STORE"/*.meta; do
+        [ -f "$_dup_meta" ] || continue
+        local _dup_jid
+        _dup_jid=$(basename "$_dup_meta" .meta)
+        [ -f "$STORE/${_dup_jid}.sh" ] || continue  # must be active job
+        [ "$(_read_meta "$_dup_meta" META_TYPE)" = "once" ] || continue
+        [ "$(_read_meta "$_dup_meta" META_SID)" = "${SID:-}" ] || continue
+        [ "$(_read_meta "$_dup_meta" META_DIR)" = "$DIR" ] || continue
+        # For non-auto-resume jobs, require exact time match
+        if [ "${meta_subtype:-}" != "auto-resume" ] || [ "$(_read_meta "$_dup_meta" META_SUBTYPE)" != "auto-resume" ]; then
+            [ "$(_read_meta "$_dup_meta" META_TARGET_FMT)" = "$target_fmt" ] || continue
+        fi
+        # Check prompt content
+        local _dup_prompt=""
+        [ -f "$STORE/${_dup_jid}.prompt" ] && _dup_prompt=$(<"$STORE/${_dup_jid}.prompt")
+        if [ "$_dup_prompt" = "$PROMPT" ]; then
+            echo "$(_t "Already scheduled:" "이미 예약됨:") ${target_fmt} (Job ID: ${_dup_jid})"
+            exit 0
+        fi
+    done
 
     _HL_FLAGS="$CLAUDE_BRB_FLAGS"
     if [ "$_HEADLESS" = 'yes' ]; then
@@ -2210,12 +2231,12 @@ _full_setup() {
                 *)   echo "      $(_t "Kept." "유지됨.")" ;;
             esac
         else
-            printf "      $(_t "Enable? [y/N] " "활성화할까요? [y/N] ")"
+            printf "      $(_t "Enable? [Y/n] " "활성화할까요? [Y/n] ")"
             local c; read -r c
-            case "$c" in
-                y|Y|yes|YES) touch "$STORE/.auto-resume-bypass-permissions"
-                             echo "      $(_t "Enabled." "활성화됨.")" ;;
-                *)           echo "      $(_t "Skipped." "건너뛰었습니다.")" ;;
+            case "${c:-Y}" in
+                n|N) echo "      $(_t "Skipped." "건너뛰었습니다.")" ;;
+                *)   touch "$STORE/.auto-resume-bypass-permissions"
+                     echo "      $(_t "Enabled." "활성화됨.")" ;;
             esac
         fi
     fi

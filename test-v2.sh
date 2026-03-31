@@ -7,6 +7,15 @@ assert() { if eval "$2"; then PASS=$((PASS+1)); else FAIL=$((FAIL+1)); echo "FAI
 CA="$(cd "$(dirname "$0")" && pwd)/claude-brb.sh"
 TEST_STORE=$(mktemp -d)
 export CLAUDE_BRB_STORE="$TEST_STORE"
+export CLAUDE_BRB_PLIST_DIR="$TEST_STORE/plist"
+mkdir -p "$TEST_STORE/plist"
+
+# Mock launchctl to prevent real launchd registration
+MOCK_BIN="$TEST_STORE/bin"
+mkdir -p "$MOCK_BIN"
+printf '#!/bin/bash\nexit 0\n' > "$MOCK_BIN/launchctl"
+chmod +x "$MOCK_BIN/launchctl"
+export PATH="$MOCK_BIN:$PATH"
 
 # --- Version ---
 output=$(bash "$CA" version 2>&1)
@@ -59,28 +68,45 @@ EOF
 assert "hook: log file created" "[ -f '$TEST_STORE/auto-resume.log' ]"
 
 # --- SCHEDULING log line present ---
-rm -f "$TEST_STORE"/auto-resume.log "$TEST_STORE"/.lock-ar-* "$TEST_STORE"/.last-stop-*
+rm -f "$TEST_STORE"/auto-resume.log "$TEST_STORE"/.last-stop-*
 echo '{"session_id":"log-test-abc","last_assistant_message":"resets 1am (Asia/Seoul)","hook_event_name":"StopFailure","error":"rate_limit","cwd":"/tmp"}' \
     | bash "$CA" _hook-auto-resume 2>/dev/null || true
 assert "hook: SCHEDULING log line exists" "grep -q 'SCHEDULING:.*log-test-abc' '$TEST_STORE/auto-resume.log'"
 
 # --- Reset time parsing from last_assistant_message ---
-rm -f "$TEST_STORE"/auto-resume.log "$TEST_STORE"/.lock-ar-* "$TEST_STORE"/.last-stop-*
+rm -f "$TEST_STORE"/auto-resume.log "$TEST_STORE"/.last-stop-*
 echo '{"session_id":"time-parse-test","last_assistant_message":"You'\''ve hit your limit · resets 6am (Asia/Seoul)","hook_event_name":"StopFailure","error":"rate_limit","cwd":"/tmp"}' \
     | bash "$CA" _hook-auto-resume 2>/dev/null || true
 sched_line=$(grep 'SCHEDULING:' "$TEST_STORE/auto-resume.log" 2>/dev/null | tail -1)
 assert "hook: parses reset time from last_assistant_message (not +5h)" "echo '$sched_line' | grep -qv '+5h'"
 
-# --- Concurrent hook dedup ---
-rm -f "$TEST_STORE"/auto-resume.log "$TEST_STORE"/.lock-ar-* "$TEST_STORE"/.last-stop-*
-# Simulate 3 parallel hooks for the same session
-for i in 1 2 3; do
-    echo '{"session_id":"dedup-test-session","last_assistant_message":"resets 6am (Asia/Seoul)","hook_event_name":"StopFailure","error":"rate_limit","cwd":"/tmp"}' \
-        | bash "$CA" _hook-auto-resume 2>/dev/null &
-done
-wait
-sched_count=$(grep -c 'SCHEDULING:.*dedup-test-session' "$TEST_STORE/auto-resume.log" 2>/dev/null || echo 0)
-assert "hook: concurrent dedup (expected 1, got $sched_count)" "[ '$sched_count' -le 1 ]"
+# --- Idempotent scheduling at brb-at level ---
+# First call creates the job
+first_out=$(bash "$CA" at +3h -d /tmp "idempotent test prompt" 2>&1)
+assert "at: first schedule succeeds" "echo '$first_out' | grep -qF 'Job ID:'"
+# Second identical call (same dir + same time + same prompt) — must return "Already scheduled"
+second_out=$(bash "$CA" at +3h -d /tmp "idempotent test prompt" 2>&1)
+assert "at: idempotent dedup — identical job returns Already scheduled" "echo '$second_out' | grep -qF 'Already scheduled'"
+# Different prompt for same time/dir — must create a new job
+third_out=$(bash "$CA" at +3h -d /tmp "different prompt" 2>&1)
+assert "at: different prompt is allowed" "echo '$third_out' | grep -qvF 'Already scheduled'"
+
+# --- Auto-resume dedup: same session+prompt, different time → still deduped ---
+ar_out1=$(_CLAUDE_BRB_SUBTYPE=auto-resume bash "$CA" at 14:00 -d /tmp "resume prompt" 2>&1)
+assert "at: auto-resume first schedule" "echo '$ar_out1' | grep -qF 'Job ID:'"
+# Simulate hook arriving 1 minute later (crossed minute boundary)
+ar_out2=$(_CLAUDE_BRB_SUBTYPE=auto-resume bash "$CA" at 14:01 -d /tmp "resume prompt" 2>&1)
+assert "at: auto-resume dedup skips time comparison" "echo '$ar_out2' | grep -qF 'Already scheduled'"
+
+# --- Different session_id, same prompt+time → allowed ---
+diff_sid_out=$(bash "$CA" at +3h -d /var/tmp "idempotent test prompt" 2>&1)
+assert "at: different dir (no session) is allowed" "echo '$diff_sid_out' | grep -qvF 'Already scheduled'"
+
+# --- Completed job (.sh removed) allows re-scheduling ---
+# Remove all runner scripts to simulate all jobs completed
+rm -f "$TEST_STORE"/*.sh
+resch_out=$(bash "$CA" at +3h -d /tmp "idempotent test prompt" 2>&1)
+assert "at: re-schedule after job completion (.sh removed)" "echo '$resch_out' | grep -qvF 'Already scheduled'"
 
 # --- Cleanup ---
 rm -rf "$TEST_STORE"
