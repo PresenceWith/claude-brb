@@ -33,7 +33,7 @@ brb setup
 
 ```
 $ brb
-claude-brb 0.3.0
+claude-brb 0.3.2
 
 auto-resume: enabled
 keep-alive:  enabled (00:01,05:02,10:03,15:04,20:05)
