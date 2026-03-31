@@ -23,6 +23,9 @@ claude-brb automates this:
 ```bash
 brew install PresenceWith/tap/claude-brb
 brb setup
+
+# Update to latest version
+brew upgrade claude-brb
 ```
 
 `brb setup` configures three things:
@@ -34,7 +37,7 @@ Each step asks Y/n, and you only need to do it once.
 
 ```
 $ brb
-claude-brb 0.3.2
+claude-brb 0.3.3
 
 auto-resume: enabled
 keep-alive:  enabled (00:01,05:02,10:03,15:04,20:05)

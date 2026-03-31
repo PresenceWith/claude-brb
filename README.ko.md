@@ -22,6 +22,9 @@ claude-brb는 이 과정을 자동화합니다:
 ```bash
 brew install PresenceWith/tap/claude-brb
 brb setup
+
+# 최신 버전으로 업데이트
+brew upgrade claude-brb
 ```
 
 `brb setup`은 세 가지를 설정합니다:
@@ -33,7 +36,7 @@ brb setup
 
 ```
 $ brb
-claude-brb 0.3.2
+claude-brb 0.3.3
 
 auto-resume: enabled
 keep-alive:  enabled (00:01,05:02,10:03,15:04,20:05)
