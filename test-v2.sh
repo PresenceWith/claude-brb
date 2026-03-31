@@ -177,6 +177,15 @@ assert "teardown: removes .bypass-permissions" "[ ! -f '$TEST_STORE/.bypass-perm
 unset _SETTINGS_PATH
 export _SETTINGS_PATH="$TEST_STORE/test-settings.json"
 
+# --- E2E: -B flag with headless ---
+rm -f "$TEST_STORE"/*.sh "$TEST_STORE"/*.meta "$TEST_STORE"/*.prompt
+e2e_out=$(bash "$CA" at +2h -H -B -d /tmp "headless bypass test" 2>&1)
+assert "at -H -B: schedule succeeds" "echo '$e2e_out' | grep -qF 'Job ID:'"
+e2e_jid=$(echo "$e2e_out" | grep -o 'Job ID: [^ )]*' | head -1 | sed 's/Job ID: //')
+assert "at -H -B: META_FLAGS has bypass" "grep -q 'dangerously-skip-permissions' '$TEST_STORE/${e2e_jid}.meta'"
+e2e_list=$(bash "$CA" list 2>&1)
+assert "list: shows [HB] marker" "echo '$e2e_list' | grep -q '\[HB\]'"
+
 # --- Cleanup ---
 rm -rf "$TEST_STORE"
 echo ""
