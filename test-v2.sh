@@ -130,6 +130,19 @@ assert "at -B: schedule succeeds" "echo '$bp_flag_out' | grep -qF 'Job ID:'"
 bp_jid=$(echo "$bp_flag_out" | grep -o 'Job ID: [^ )]*' | head -1 | sed 's/Job ID: //')
 assert "at -B: META_FLAGS has dangerously-skip-permissions" "grep -q 'dangerously-skip-permissions' '$TEST_STORE/${bp_jid}.meta'"
 
+# --- Global bypass-permissions applies to at/every ---
+touch "$TEST_STORE/.bypass-permissions"
+global_bp_out=$(bash "$CA" at +4h -d /tmp "global bp test" 2>&1)
+assert "at: global BP applies" "echo '$global_bp_out' | grep -qF 'Job ID:'"
+global_bp_jid=$(echo "$global_bp_out" | grep -o 'Job ID: [^ )]*' | head -1 | sed 's/Job ID: //')
+assert "at: global BP sets META_FLAGS" "grep -q 'dangerously-skip-permissions' '$TEST_STORE/${global_bp_jid}.meta'"
+rm -f "$TEST_STORE/.bypass-permissions"
+
+# --- Without global or -B, no bypass flag ---
+no_bp_out=$(bash "$CA" at +5h -d /tmp "no bp test" 2>&1)
+no_bp_jid=$(echo "$no_bp_out" | grep -o 'Job ID: [^ )]*' | head -1 | sed 's/Job ID: //')
+assert "at: no BP means no flag" "! grep -q 'dangerously-skip-permissions' '$TEST_STORE/${no_bp_jid}.meta'"
+
 # --- Cleanup ---
 rm -rf "$TEST_STORE"
 echo ""
