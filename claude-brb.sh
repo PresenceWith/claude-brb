@@ -3,7 +3,7 @@
 set -euo pipefail
 umask 077
 
-VERSION="0.4.0"
+VERSION="0.4.1"
 
 # --- i18n: detect locale once, cache result ---
 _lang_code="${CLAUDE_BRB_LANG:-${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}}"
@@ -311,7 +311,7 @@ day_to_num() {
 expand_schedule() {
     local sched="$1"
     case "$sched" in
-        daily)   echo "" ;;
+        day|daily) echo "" ;;
         weekday) echo "1,2,3,4,5" ;;
         weekend) echo "0,6" ;;
         *)
@@ -737,11 +737,7 @@ _auto_resume_cmd() {
             ;;
         status)
             if _settings_json_has_hook 2>/dev/null; then
-                if [ -f "$STORE/.auto-resume-bypass-permissions" ]; then
-                    echo "$(_t "auto-resume: enabled (bypass-permissions: on)" "auto-resume: 활성 (bypass-permissions: on)")"
-                else
-                    echo "$(_t "auto-resume: enabled (bypass-permissions: off)" "auto-resume: 활성 (bypass-permissions: off)")"
-                fi
+                echo "$(_t "auto-resume: enabled" "auto-resume: 활성")"
             else
                 echo "$(_t "auto-resume: disabled" "auto-resume: 비활성")"
             fi
@@ -762,16 +758,18 @@ _bypass_permissions_cmd() {
     case "$action" in
         enable)
             mkdir -p "$STORE"
-            touch "$STORE/.bypass-permissions"
-            echo "$(_t "✅ bypass-permissions enabled (at/every jobs)" "✅ bypass-permissions 활성화됨 (at/every 작업에 적용)")"
+            touch "$STORE/.bypass-permissions" "$STORE/.auto-resume-bypass-permissions"
+            echo "$(_t "✅ bypass-permissions enabled (scheduled + auto-resume)" "✅ bypass-permissions 활성화됨 (예약 작업 + 자동 재개)")"
             ;;
         disable)
-            rm -f "$STORE/.bypass-permissions"
+            rm -f "$STORE/.bypass-permissions" "$STORE/.auto-resume-bypass-permissions"
             echo "$(_t "✅ bypass-permissions disabled" "✅ bypass-permissions 비활성화됨")"
             ;;
         status)
-            if [ -f "$STORE/.bypass-permissions" ]; then
+            if [ -f "$STORE/.bypass-permissions" ] && [ -f "$STORE/.auto-resume-bypass-permissions" ]; then
                 echo "$(_t "bypass-permissions: enabled" "bypass-permissions: 활성")"
+            elif [ -f "$STORE/.bypass-permissions" ] || [ -f "$STORE/.auto-resume-bypass-permissions" ]; then
+                echo "$(_t "bypass-permissions: partially enabled" "bypass-permissions: 일부 활성")"
             else
                 echo "$(_t "bypass-permissions: disabled" "bypass-permissions: 비활성")"
             fi
@@ -1002,16 +1000,16 @@ _headless_perm_check() {
     _MSG_HEADLESS_PERM_WARN >&2
     echo "" >&2
     if [ -t 0 ]; then
-        printf "$(_t "  Add --dangerously-skip-permissions to this job? [y/N] " "  이 작업에 --dangerously-skip-permissions를 추가할까요? [y/N] ")" >&2
+        printf "$(_t "  Add --dangerously-skip-permissions to this job? [Y/n] " "  이 작업에 --dangerously-skip-permissions를 추가할까요? [Y/n] ")" >&2
         local confirm
         read -r confirm
-        case "$confirm" in
-            y|Y|yes|YES)
-                echo "--dangerously-skip-permissions"
+        case "${confirm:-Y}" in
+            n|N|no|NO)
+                _err "$(_t "  Proceeding without it. The job may stall on permission prompts." "  플래그 없이 진행합니다. 작업이 권한 프롬프트에서 멈출 수 있습니다.")"
                 return 0
                 ;;
             *)
-                _err "$(_t "  Proceeding without it. The job may stall on permission prompts." "  플래그 없이 진행합니다. 작업이 권한 프롬프트에서 멈출 수 있습니다.")"
+                echo "--dangerously-skip-permissions"
                 return 0
                 ;;
         esac
@@ -2205,25 +2203,23 @@ _status_summary() {
     echo ""
 
     if _settings_json_has_hook 2>/dev/null; then
-        if [ -f "$STORE/.auto-resume-bypass-permissions" ]; then
-            echo "$(_t "auto-resume: enabled (bypass-permissions: on)" "auto-resume: 활성 (bypass-permissions: on)")"
-        else
-            echo "$(_t "auto-resume: enabled (bypass-permissions: off)" "auto-resume: 활성 (bypass-permissions: off)")"
-        fi
+        echo "$(_t "auto-resume:        enabled" "auto-resume:        활성")"
     else
-        echo "$(_t "auto-resume: disabled" "auto-resume: 비활성")"
+        echo "$(_t "auto-resume:        disabled" "auto-resume:        비활성")"
     fi
 
     if [ -f "$STORE/rpt.keep-alive.meta" ] && [ -f "$STORE/rpt.keep-alive.sh" ]; then
         local times
         times=$(_read_meta "$STORE/rpt.keep-alive.meta" META_TIMES)
-        echo "$(_t "keep-alive:  enabled" "keep-alive:  활성") ($times)"
+        echo "$(_t "keep-alive:         enabled" "keep-alive:         활성") ($times)"
     else
-        echo "$(_t "keep-alive:  disabled" "keep-alive:  비활성")"
+        echo "$(_t "keep-alive:         disabled" "keep-alive:         비활성")"
     fi
 
-    if [ -f "$STORE/.bypass-permissions" ]; then
+    if [ -f "$STORE/.bypass-permissions" ] && [ -f "$STORE/.auto-resume-bypass-permissions" ]; then
         echo "$(_t "bypass-permissions: enabled" "bypass-permissions: 활성")"
+    elif [ -f "$STORE/.bypass-permissions" ] || [ -f "$STORE/.auto-resume-bypass-permissions" ]; then
+        echo "$(_t "bypass-permissions: partially enabled" "bypass-permissions: 일부 활성")"
     else
         echo "$(_t "bypass-permissions: disabled" "bypass-permissions: 비활성")"
     fi
@@ -2275,52 +2271,37 @@ _full_setup() {
         esac
     fi
 
-    # Step 2-1: bypass permissions for auto-resume
-    if _settings_json_has_hook 2>/dev/null; then
-        echo ""
-        echo "      $(_t "Bypass permissions: resume with --dangerously-skip-permissions" "권한 우회: --dangerously-skip-permissions로 재개")"
-        echo "      $(_t "When enabled, the resumed session skips all permission prompts." "활성화하면 재개된 세션에서 모든 권한 프롬프트를 건너뜁니다.")"
-        if [ -f "$STORE/.auto-resume-bypass-permissions" ]; then
-            echo "      $(_t "Currently: on" "현재: on")"
-            printf "      $(_t "Keep? [Y/n] " "유지할까요? [Y/n] ")"
-            local c; read -r c
-            case "${c:-Y}" in
-                n|N) rm -f "$STORE/.auto-resume-bypass-permissions"
-                     echo "      $(_t "Disabled." "비활성화됨.")" ;;
-                *)   echo "      $(_t "Kept." "유지됨.")" ;;
-            esac
-        else
-            printf "      $(_t "Enable? [Y/n] " "활성화할까요? [Y/n] ")"
-            local c; read -r c
-            case "${c:-Y}" in
-                n|N) echo "      $(_t "Skipped." "건너뛰었습니다.")" ;;
-                *)   touch "$STORE/.auto-resume-bypass-permissions"
-                     echo "      $(_t "Enabled." "활성화됨.")" ;;
-            esac
-        fi
-    fi
     echo ""
 
-    # Step 3: global bypass-permissions
-    echo "[3/4] $(_t "Bypass-permissions (global)" "Bypass-permissions (글로벌 설정)")"
-    echo "      $(_t "Runs at/every jobs with --dangerously-skip-permissions." "예약 작업(at/every)을 --dangerously-skip-permissions로 실행합니다.")"
-    echo "      $(_t "When enabled, scheduled sessions skip all permission prompts." "활성화하면 예약된 세션에서 모든 권한 프롬프트를 건너뜁니다.")"
-    if [ -f "$STORE/.bypass-permissions" ]; then
+    # Step 3: bypass-permissions (unified: auto-resume + scheduled jobs)
+    echo "[3/4] $(_t "Bypass permissions" "Bypass permissions")"
+    echo "      $(_t "Skips all permission prompts in scheduled and auto-resumed sessions." "예약 작업과 자동 재개 세션에서 권한 프롬프트를 건너뜁니다.")"
+    if [ -f "$STORE/.bypass-permissions" ] && [ -f "$STORE/.auto-resume-bypass-permissions" ]; then
         echo "      $(_t "Currently: on" "현재: on")"
         printf "      $(_t "Keep? [Y/n] " "유지할까요? [Y/n] ")"
         local c; read -r c
         case "${c:-Y}" in
-            n|N) rm -f "$STORE/.bypass-permissions"
+            n|N) rm -f "$STORE/.bypass-permissions" "$STORE/.auto-resume-bypass-permissions"
                  echo "      $(_t "Disabled." "비활성화됨.")" ;;
             *)   echo "      $(_t "Kept." "유지됨.")" ;;
         esac
-    else
-        printf "      $(_t "Enable? [y/N] " "활성화할까요? [y/N] ")"
+    elif [ -f "$STORE/.bypass-permissions" ] || [ -f "$STORE/.auto-resume-bypass-permissions" ]; then
+        echo "      $(_t "Currently: partially on" "현재: 일부 활성")"
+        printf "      $(_t "Enable for all? [Y/n] " "전체 활성화할까요? [Y/n] ")"
         local c; read -r c
-        case "${c:-N}" in
-            y|Y) touch "$STORE/.bypass-permissions"
+        case "${c:-Y}" in
+            n|N) rm -f "$STORE/.bypass-permissions" "$STORE/.auto-resume-bypass-permissions"
+                 echo "      $(_t "Disabled." "비활성화됨.")" ;;
+            *)   touch "$STORE/.bypass-permissions" "$STORE/.auto-resume-bypass-permissions"
                  echo "      $(_t "Enabled." "활성화됨.")" ;;
-            *)   echo "      $(_t "Skipped." "건너뛰었습니다.")" ;;
+        esac
+    else
+        printf "      $(_t "Enable? [Y/n] " "활성화할까요? [Y/n] ")"
+        local c; read -r c
+        case "${c:-Y}" in
+            n|N) echo "      $(_t "Skipped." "건너뛰었습니다.")" ;;
+            *)   touch "$STORE/.bypass-permissions" "$STORE/.auto-resume-bypass-permissions"
+                 echo "      $(_t "Enabled." "활성화됨.")" ;;
         esac
     fi
     echo ""
